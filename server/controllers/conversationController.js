@@ -1,6 +1,7 @@
 import Conversation from '../models/Conversation.js';
 import Message from '../models/Message.js';
 import User from '../models/User.js';
+import { getIO } from '../sockets/socketHandler.js';
 
 /**
  * @desc    Get or create 1-to-1 conversation with another user
@@ -75,6 +76,20 @@ export const getOrCreateConversation = async (req, res, next) => {
         unreadCount: 0,
       },
     });
+
+    // Notify both participants about the new conversation via Socket.IO
+    try {
+      const io = getIO();
+      if (io) {
+        const convData = { ...conversation.toObject(), unreadCount: 0 };
+        // Notify the creator (may be in a different tab/device)
+        io.to(`user_${req.user._id.toString()}`).emit('new_conversation', convData);
+        // Notify the other participant
+        io.to(`user_${participantId.toString()}`).emit('new_conversation', convData);
+      }
+    } catch (sockErr) {
+      console.warn('[Socket] Could not emit new_conversation:', sockErr.message);
+    }
   } catch (error) {
     next(error);
   }

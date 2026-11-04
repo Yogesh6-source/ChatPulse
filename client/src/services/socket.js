@@ -32,6 +32,10 @@ export const connectSocket = (token) => {
     console.log('[Socket] Connected with ID:', socket.id);
   });
 
+  socket.on('reconnect', (attempt) => {
+    console.log('[Socket] Reconnected after', attempt, 'attempt(s)');
+  });
+
   socket.on('connect_error', (err) => {
     console.warn('[Socket] Connection error:', err.message);
   });

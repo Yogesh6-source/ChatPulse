@@ -82,13 +82,21 @@ export const ChatProvider = ({ children }) => {
     }
 
     const socket = getSocket();
-    if (socket && socket.connected) {
-      socket.emit('join_conversation', { conversationId: activeConversation._id });
-    }
+
+    const joinRoom = () => {
+      if (socket && socket.connected) {
+        socket.emit('join_conversation', { conversationId: activeConversation._id });
+      }
+    };
+
+    // Join now if already connected, also re-join on reconnect
+    joinRoom();
+    socket?.on('connect', joinRoom);
 
     fetchMessages(activeConversation._id);
 
     return () => {
+      socket?.off('connect', joinRoom);
       if (socket && socket.connected) {
         socket.emit('leave_conversation', { conversationId: activeConversation._id });
       }
@@ -135,14 +143,14 @@ export const ChatProvider = ({ children }) => {
       );
     };
 
-    // Receive message
+    // Receive message (from conversation room — sender + receiver both in room)
     const handleReceiveMessage = (incomingMsg) => {
       const isForCurrent =
         activeConvRef.current && activeConvRef.current._id === incomingMsg.conversationId;
 
       if (isForCurrent) {
         setMessages((prev) => {
-          // If message was sent by self and has a tempId, replace optimistic message
+          // Replace optimistic message if tempId matches
           if (incomingMsg.tempId) {
             const index = prev.findIndex((m) => m._id === incomingMsg.tempId);
             if (index !== -1) {
@@ -152,9 +160,7 @@ export const ChatProvider = ({ children }) => {
             }
           }
           // Avoid duplicates
-          if (prev.some((m) => m._id === incomingMsg._id)) {
-            return prev;
-          }
+          if (prev.some((m) => m._id === incomingMsg._id)) return prev;
           return [...prev, incomingMsg];
         });
 
@@ -168,11 +174,9 @@ export const ChatProvider = ({ children }) => {
       setConversations((prev) => {
         const exists = prev.some((c) => c._id === incomingMsg.conversationId);
         if (!exists) {
-          // Fetch conversation if new
           fetchConversations();
           return prev;
         }
-
         return prev
           .map((c) => {
             if (c._id === incomingMsg.conversationId) {
@@ -187,6 +191,42 @@ export const ChatProvider = ({ children }) => {
             return c;
           })
           .sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
+      });
+    };
+
+    // New message notification pushed to user's personal room (receiver not in convo room)
+    const handleNewMessageNotification = ({ conversationId, message: incomingMsg }) => {
+      const isForCurrent =
+        activeConvRef.current && activeConvRef.current._id === conversationId;
+      if (isForCurrent) return; // already handled by receive_message in convo room
+
+      setConversations((prev) => {
+        const exists = prev.some((c) => c._id === conversationId);
+        if (!exists) {
+          fetchConversations();
+          return prev;
+        }
+        return prev
+          .map((c) => {
+            if (c._id === conversationId) {
+              return {
+                ...c,
+                lastMessage: incomingMsg,
+                lastMessageAt: incomingMsg.createdAt,
+                unreadCount: (c.unreadCount || 0) + 1,
+              };
+            }
+            return c;
+          })
+          .sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
+      });
+    };
+
+    // A new conversation was created (other user started it, or we started it on another tab)
+    const handleNewConversation = (conv) => {
+      setConversations((prev) => {
+        if (prev.some((c) => c._id === conv._id)) return prev;
+        return [conv, ...prev];
       });
     };
 
@@ -206,10 +246,7 @@ export const ChatProvider = ({ children }) => {
       setTypingUsers((prev) => {
         const currentConvTypers = { ...(prev[conversationId] || {}) };
         delete currentConvTypers[typingId];
-        return {
-          ...prev,
-          [conversationId]: currentConvTypers,
-        };
+        return { ...prev, [conversationId]: currentConvTypers };
       });
     };
 
@@ -254,26 +291,48 @@ export const ChatProvider = ({ children }) => {
       );
     };
 
-    socket.on('get_online_users', handleInitialOnlineUsers);
-    socket.on('user_online', handleUserOnline);
-    socket.on('user_offline', handleUserOffline);
-    socket.on('receive_message', handleReceiveMessage);
-    socket.on('user_typing', handleUserTyping);
-    socket.on('user_stop_typing', handleUserStopTyping);
-    socket.on('messages_read_receipt', handleMessagesReadReceipt);
-    socket.on('message_delivered', handleMessageDelivered);
-    socket.on('message_deleted', handleMessageDeleted);
+    const registerListeners = () => {
+      socket.on('get_online_users', handleInitialOnlineUsers);
+      socket.on('user_online', handleUserOnline);
+      socket.on('user_offline', handleUserOffline);
+      socket.on('receive_message', handleReceiveMessage);
+      socket.on('new_message_notification', handleNewMessageNotification);
+      socket.on('new_conversation', handleNewConversation);
+      socket.on('user_typing', handleUserTyping);
+      socket.on('user_stop_typing', handleUserStopTyping);
+      socket.on('messages_read_receipt', handleMessagesReadReceipt);
+      socket.on('message_delivered', handleMessageDelivered);
+      socket.on('message_deleted', handleMessageDeleted);
+    };
 
-    return () => {
+    const unregisterListeners = () => {
       socket.off('get_online_users', handleInitialOnlineUsers);
       socket.off('user_online', handleUserOnline);
       socket.off('user_offline', handleUserOffline);
       socket.off('receive_message', handleReceiveMessage);
+      socket.off('new_message_notification', handleNewMessageNotification);
+      socket.off('new_conversation', handleNewConversation);
       socket.off('user_typing', handleUserTyping);
       socket.off('user_stop_typing', handleUserStopTyping);
       socket.off('messages_read_receipt', handleMessagesReadReceipt);
       socket.off('message_delivered', handleMessageDelivered);
       socket.off('message_deleted', handleMessageDeleted);
+    };
+
+    // Register immediately (socket may already be connected)
+    registerListeners();
+
+    // Re-register on reconnect to fix stale closure / missed events after disconnect
+    socket.on('connect', () => {
+      unregisterListeners();
+      registerListeners();
+      // Re-fetch conversations on reconnect to sync any missed updates
+      fetchConversations();
+    });
+
+    return () => {
+      unregisterListeners();
+      socket.off('connect');
     };
   }, [user, fetchConversations]);
 
