@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Smile, Paperclip, Send, X, Image as ImageIcon, FileText } from 'lucide-react';
+import { Smile, Paperclip, Send, X, FileText, AlertCircle } from 'lucide-react';
 import { EmojiPicker } from './EmojiPicker';
 
 export const MessageInput = ({ onSendMessage, onTyping }) => {
@@ -8,6 +8,7 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
   const [filePreview, setFilePreview] = useState(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sendError, setSendError] = useState('');
 
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
@@ -56,6 +57,7 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
       return;
     }
 
+    setSendError('');
     setSelectedFile(file);
 
     if (file.type.startsWith('image/')) {
@@ -86,6 +88,7 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
 
     try {
       setIsSubmitting(true);
+      setSendError('');
       if (isTypingRef.current) {
         isTypingRef.current = false;
         onTyping(false);
@@ -107,6 +110,7 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
       }
     } catch (err) {
       console.error('Failed to send:', err);
+      setSendError(err.message || 'Failed to send the message.');
     } finally {
       setIsSubmitting(false);
     }
@@ -158,6 +162,16 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
           onSelect={handleSelectEmoji}
           onClose={() => setShowEmojiPicker(false)}
         />
+      )}
+
+      {sendError && (
+        <div
+          role="alert"
+          className="mb-2 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-xs text-rose-600 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-400"
+        >
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          <span>{sendError}</span>
+        </div>
       )}
 
       <form onSubmit={handleSubmit} className="flex items-end gap-2">

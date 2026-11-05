@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from '../common/Modal';
 import { Avatar } from '../common/Avatar';
-import { Search, MessageSquarePlus, UserCheck } from 'lucide-react';
-import api from '../../services/api';
+import { Search, MessageSquarePlus } from 'lucide-react';
+import { searchUsers } from '../../services/firebaseData';
+import { useAuth } from '../../context/AuthContext';
 
 export const UserSearchModal = ({
   isOpen,
@@ -13,31 +14,37 @@ export const UserSearchModal = ({
   const [query, setQuery] = useState('');
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const { user } = useAuth();
 
   useEffect(() => {
     if (!isOpen) {
       setQuery('');
       setUsers([]);
+      setError('');
       return;
     }
 
+    let active = true;
     const fetchUsers = async () => {
       try {
         setLoading(true);
-        const res = await api.get(`/users/search?q=${encodeURIComponent(query)}`);
-        if (res.data.success) {
-          setUsers(res.data.users);
-        }
+        setError('');
+        const results = await searchUsers(query, user._id);
+        if (active) setUsers(results);
       } catch (err) {
-        console.error('Failed to search users:', err);
+        if (active) setError(err.message || 'Failed to search users.');
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
     const debounce = setTimeout(fetchUsers, 300);
-    return () => clearTimeout(debounce);
-  }, [isOpen, query]);
+    return () => {
+      active = false;
+      clearTimeout(debounce);
+    };
+  }, [isOpen, query, user]);
 
   const handleSelect = (user) => {
     onSelectUser(user._id);
@@ -66,6 +73,8 @@ export const UserSearchModal = ({
             <div className="py-8 flex justify-center">
               <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
             </div>
+          ) : error ? (
+            <div className="py-8 text-center text-sm text-rose-500">{error}</div>
           ) : users.length === 0 ? (
             <div className="py-8 text-center text-sm text-gray-400 dark:text-gray-500">
               {query ? 'No users found matching your search' : 'Type to search for people'}

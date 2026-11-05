@@ -46,15 +46,12 @@ export const ProfileModal = ({ isOpen, onClose }) => {
 
     try {
       setLoading(true);
-      const formData = new FormData();
-      formData.append('fullName', fullName.trim());
-      formData.append('username', username.trim());
-      formData.append('bio', bio.trim());
-      if (avatarFile) {
-        formData.append('avatar', avatarFile);
-      }
-
-      await updateProfile(formData);
+      await updateProfile({
+        fullName: fullName.trim(),
+        username: username.trim(),
+        bio: bio.trim(),
+        avatarFile,
+      });
       setSuccess('Profile updated successfully!');
       setTimeout(() => {
         setSuccess('');

@@ -1,122 +1,131 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import api from '../services/api';
-import { connectSocket, disconnectSocket } from '../services/socket';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import {
+  getFirebaseUserProfile,
+  registerUser,
+  sendPasswordReset,
+  signIn,
+  startPresence,
+  updateUserProfile,
+} from '../services/firebaseData';
+import { auth, firebaseConfigError } from '../services/firebase';
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem('chat_user');
-    return saved ? JSON.parse(saved) : null;
-  });
-  const [token, setToken] = useState(() => localStorage.getItem('chat_token'));
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-
-  // Check auth status on load
-  const checkAuth = useCallback(async () => {
-    const storedToken = localStorage.getItem('chat_token');
-    if (!storedToken) {
-      setUser(null);
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const res = await api.get('/auth/me');
-      if (res.data.success) {
-        setUser(res.data.user);
-        localStorage.setItem('chat_user', JSON.stringify(res.data.user));
-        connectSocket(storedToken);
-      } else {
-        logout();
-      }
-    } catch (err) {
-      console.warn('Auth check failed:', err.response?.data?.message || err.message);
-      logout();
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [authError, setAuthError] = useState(firebaseConfigError);
+  const stopPresenceRef = useRef(null);
 
   useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
-
-  // Login handler
-  const login = async (loginId, password, rememberMe = false) => {
-    const res = await api.post('/auth/login', { loginId, password, rememberMe });
-    if (res.data.success) {
-      const { user: userData, token: userToken } = res.data;
-      setUser(userData);
-      setToken(userToken);
-      localStorage.setItem('chat_token', userToken);
-      localStorage.setItem('chat_user', JSON.stringify(userData));
-      connectSocket(userToken);
-      return userData;
+    if (!auth) {
+      setLoading(false);
+      return undefined;
     }
-    throw new Error(res.data.message || 'Login failed');
-  };
 
-  // Register handler (supports FormData for avatar)
-  const register = async (formData) => {
-    const isFormData = formData instanceof FormData;
-    const res = await api.post('/auth/register', formData, {
-      headers: isFormData ? { 'Content-Type': 'multipart/form-data' } : {},
+    let requestId = 0;
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      const currentRequest = ++requestId;
+      if (stopPresenceRef.current) {
+        stopPresenceRef.current();
+        stopPresenceRef.current = null;
+      }
+      if (!firebaseUser) {
+        setUser(null);
+        setAuthError(firebaseConfigError);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        let profile;
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          try {
+            profile = await getFirebaseUserProfile(firebaseUser.uid, firebaseUser.email);
+            break;
+          } catch (error) {
+            if (
+              !error.message.includes('does not have a ChatPulse profile')
+              || attempt === 39
+            ) {
+              throw error;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            if (currentRequest !== requestId) return;
+          }
+        }
+        if (currentRequest !== requestId) return;
+        setUser(profile);
+        setAuthError('');
+        stopPresenceRef.current = startPresence(firebaseUser.uid);
+      } catch (error) {
+        if (currentRequest !== requestId) return;
+        console.error('Failed to load the Firebase user profile:', error);
+        setUser(null);
+        setAuthError(error.message);
+      } finally {
+        if (currentRequest === requestId) setLoading(false);
+      }
     });
 
-    if (res.data.success) {
-      const { user: userData, token: userToken } = res.data;
-      setUser(userData);
-      setToken(userToken);
-      localStorage.setItem('chat_token', userToken);
-      localStorage.setItem('chat_user', JSON.stringify(userData));
-      connectSocket(userToken);
-      return userData;
-    }
-    throw new Error(res.data.message || 'Registration failed');
+    return () => {
+      requestId += 1;
+      unsubscribe();
+      if (stopPresenceRef.current) {
+        stopPresenceRef.current();
+        stopPresenceRef.current = null;
+      }
+    };
+  }, []);
+
+  const login = async (email, password, rememberMe = true) => {
+    const credential = await signIn(email, password, rememberMe);
+    const profile = await getFirebaseUserProfile(credential.user.uid, credential.user.email);
+    setUser(profile);
+    setAuthError('');
+    return profile;
   };
 
-  // Logout handler
+  const register = async (details) => {
+    const profile = await registerUser(details);
+    setUser(profile);
+    setAuthError('');
+    return profile;
+  };
+
   const logout = async () => {
-    try {
-      await api.post('/auth/logout');
-    } catch (e) {
-      // Ignore error on logout
-    } finally {
-      disconnectSocket();
-      setUser(null);
-      setToken(null);
-      localStorage.removeItem('chat_token');
-      localStorage.removeItem('chat_user');
+    if (!auth) return;
+    if (stopPresenceRef.current) {
+      await stopPresenceRef.current();
+      stopPresenceRef.current = null;
     }
+    await signOut(auth);
+    setUser(null);
   };
 
-  // Update profile
-  const updateProfile = async (formData) => {
-    const isFormData = formData instanceof FormData;
-    const res = await api.put('/users/profile', formData, {
-      headers: isFormData ? { 'Content-Type': 'multipart/form-data' } : {},
-    });
-
-    if (res.data.success) {
-      setUser(res.data.user);
-      localStorage.setItem('chat_user', JSON.stringify(res.data.user));
-      return res.data.user;
-    }
-    throw new Error(res.data.message || 'Profile update failed');
+  const updateProfile = async (details) => {
+    if (!user) throw new Error('You must be signed in to update your profile.');
+    const updatedUser = await updateUserProfile(user, details);
+    setUser(updatedUser);
+    return updatedUser;
   };
+
+  const resetPassword = async (email) => sendPasswordReset(email);
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        token,
         loading,
+        authError,
         isAuthenticated: !!user,
         login,
         register,
         logout,
         updateProfile,
+        resetPassword,
       }}
     >
       {children}

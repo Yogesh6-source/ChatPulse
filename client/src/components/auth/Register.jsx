@@ -16,7 +16,7 @@ export const Register = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const { register } = useAuth();
+  const { register, authError } = useAuth();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
 
@@ -57,19 +57,17 @@ export const Register = () => {
     try {
       setLoading(true);
 
-      const formData = new FormData();
-      formData.append('fullName', fullName.trim());
-      formData.append('username', username.toLowerCase().trim());
-      formData.append('email', email.toLowerCase().trim());
-      formData.append('password', password);
-      formData.append('confirmPassword', confirmPassword);
-      if (bio.trim()) formData.append('bio', bio.trim());
-      if (avatarFile) formData.append('avatar', avatarFile);
-
-      await register(formData);
+      await register({
+        fullName: fullName.trim(),
+        username: username.toLowerCase().trim(),
+        email: email.toLowerCase().trim(),
+        password,
+        bio: bio.trim(),
+        avatarFile,
+      });
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Registration failed');
+      setError(err.message || 'Registration failed');
     } finally {
       setLoading(false);
     }
@@ -95,6 +93,11 @@ export const Register = () => {
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>{error}</span>
         </div>
+      )}
+      {authError && !error && (
+        <p role="alert" className="mb-4 text-xs text-rose-600 dark:text-rose-400">
+          {authError}
+        </p>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-3.5">

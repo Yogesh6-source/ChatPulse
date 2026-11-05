@@ -1,38 +1,56 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Lock, Mail, User, AlertCircle, MessageSquare } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, AlertCircle, MessageSquare } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Modal } from '../common/Modal';
 
 export const Login = () => {
-  const [loginId, setLoginId] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [profileIncomplete, setProfileIncomplete] = useState(false);
   const [showForgotModal, setShowForgotModal] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetMessage, setResetMessage] = useState('');
 
-  const { login } = useAuth();
+  const { login, resetPassword, authError } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setProfileIncomplete(false);
 
-    if (!loginId.trim() || !password) {
-      setError('Please provide your username/email and password.');
+    if (!email.trim() || !password) {
+      setError('Please provide your email and password.');
       return;
     }
 
     try {
       setLoading(true);
-      await login(loginId.trim(), password, rememberMe);
+      await login(email.trim(), password, rememberMe);
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Invalid credentials');
+      setError(err.message || 'Invalid credentials');
+      setProfileIncomplete(
+        err.message?.includes('does not have a ChatPulse profile') || false
+      );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async (e) => {
+    e.preventDefault();
+    setResetMessage('');
+    try {
+      await resetPassword(resetEmail);
+      setResetMessage('If an account exists for that email, a password reset link has been sent.');
+    } catch (err) {
+      setResetMessage(err.message || 'Could not send the password reset email.');
     }
   };
 
@@ -54,23 +72,37 @@ export const Login = () => {
       {error && (
         <div className="mb-5 flex items-center gap-2.5 p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400 text-sm animate-fade-in">
           <AlertCircle className="w-5 h-5 flex-shrink-0" />
-          <span>{error}</span>
+          <div>
+            <span>{error}</span>
+            {profileIncomplete && (
+              <p className="mt-1">
+                <Link to="/register" className="font-semibold underline">
+                  Finish setting up your account
+                </Link>
+              </p>
+            )}
+          </div>
         </div>
+      )}
+      {authError && !error && (
+        <p role="alert" className="mb-5 text-xs text-rose-600 dark:text-rose-400">
+          {authError}
+        </p>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Email or Username */}
+        {/* Email */}
         <div>
           <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-            Email or Username
+            Email address
           </label>
           <div className="relative flex items-center">
-            <User className="w-4 h-4 absolute left-3.5 text-gray-400" />
+            <Mail className="w-4 h-4 absolute left-3.5 text-gray-400" />
             <input
-              type="text"
-              value={loginId}
-              onChange={(e) => setLoginId(e.target.value)}
-              placeholder="alex or alex@example.com"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="alex@example.com"
               required
               className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600/80 focus:border-emerald-500 dark:focus:border-emerald-500 focus:bg-white dark:focus:bg-gray-700 text-sm text-gray-900 dark:text-white outline-none transition"
             />
@@ -157,22 +189,33 @@ export const Login = () => {
         onClose={() => setShowForgotModal(false)}
         title="Password Recovery"
       >
-        <div className="space-y-4 text-sm text-gray-600 dark:text-gray-300">
-          <p>
-            For private real-time chats, your account password is encrypted securely using bcrypt.
-          </p>
-          <p className="text-xs text-gray-500">
-            If you forgot your password during local testing, you can register a new username/account immediately with zero friction!
-          </p>
-          <div className="pt-2 flex justify-end">
+        <form onSubmit={handlePasswordReset} className="space-y-4 text-sm text-gray-600 dark:text-gray-300">
+          <p>Enter your account email and Firebase will send a password reset link.</p>
+          <input
+            type="email"
+            value={resetEmail}
+            onChange={(e) => setResetEmail(e.target.value)}
+            placeholder="alex@example.com"
+            required
+            className="w-full px-3.5 py-2 rounded-xl bg-gray-100 dark:bg-gray-700 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          {resetMessage && <p role="status" className="text-xs text-emerald-600 dark:text-emerald-400">{resetMessage}</p>}
+          <div className="pt-2 flex justify-end gap-2">
             <button
+              type="button"
               onClick={() => setShowForgotModal(false)}
+              className="px-4 py-2 text-xs font-semibold"
+            >
+              Close
+            </button>
+            <button
+              type="submit"
               className="px-4 py-2 bg-emerald-500 text-white text-xs font-semibold rounded-xl"
             >
-              Got it
+              Send reset link
             </button>
           </div>
-        </div>
+        </form>
       </Modal>
     </div>
   );
