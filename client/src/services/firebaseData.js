@@ -2,6 +2,7 @@ import {
   createUserWithEmailAndPassword,
   browserLocalPersistence,
   browserSessionPersistence,
+  deleteUser,
   setPersistence,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
@@ -47,7 +48,7 @@ const signedUrlCache = new Map();
 const makeStorageFileName = (file) =>
   `${crypto.randomUUID()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
 
-const getSignedUrlCacheKey = (path) => `${auth.currentUser.uid}:${path}`;
+const getSignedUrlCacheKey = (path) => `${auth.currentUser?.uid ?? 'anon'}:${path}`;
 
 const uploadFile = async (bucket, path, file) => {
   requireSupabase();
@@ -240,6 +241,12 @@ export const registerUser = async ({
           console.error('Failed to clean up an incomplete profile image upload:', cleanupError);
         }
       }
+      // Delete the orphan Firebase Auth account so the user can retry registration
+      try {
+        await deleteUser(credential.user);
+      } catch (deleteError) {
+        console.error('Failed to clean up orphan Firebase Auth account:', deleteError);
+      }
     }
     throw toError(error);
   }
@@ -411,11 +418,15 @@ export const listenMessages = (conversationId, uid, onChange, onError) => {
     async (snapshot) => {
       const currentSnapshot = ++latestSnapshot;
       const messages = snapshot.docs.map(mapMessage).reverse();
-      try {
-        const messagesWithUrls = await Promise.all(
+      const messagesWithUrls = await Promise.all(
           messages.map(async (message) => {
             if (message.filePath) {
-              message.fileUrl = await getAttachmentUrl(message.filePath);
+              try {
+                message.fileUrl = await getAttachmentUrl(message.filePath);
+              } catch (urlError) {
+                console.error('Failed to get signed URL for attachment:', urlError);
+                message.fileUrl = null;
+              }
             }
             return message;
           })
@@ -423,9 +434,6 @@ export const listenMessages = (conversationId, uid, onChange, onError) => {
         if (currentSnapshot === latestSnapshot) {
           onChange(messagesWithUrls, snapshot.size === 50);
         }
-      } catch (error) {
-        if (currentSnapshot === latestSnapshot) onError(error);
-      }
       markMessagesRead(conversationId, uid, messages).catch((error) => {
         console.error('Failed to mark messages as read:', error);
       });
