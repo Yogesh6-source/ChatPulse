@@ -6,7 +6,10 @@ service cloud.firestore {
     }
 
     function isConversationParticipant(conversation) {
-      return signedIn() && request.auth.uid in conversation.participantIds;
+      return signedIn()
+        && conversation != null
+        && ('participantIds' in conversation)
+        && request.auth.uid in conversation.participantIds;
     }
 
     function otherParticipant(conversation) {
@@ -48,7 +51,11 @@ service cloud.firestore {
     }
 
     match /conversations/{conversationId} {
-      allow read: if isConversationParticipant(resource.data);
+      allow get: if signedIn() && (
+        resource == null ||
+        isConversationParticipant(resource.data)
+      );
+      allow list: if signedIn() && request.auth.uid in resource.data.participantIds;
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly([
           'participantIds', 'unreadCounts', 'lastMessage',

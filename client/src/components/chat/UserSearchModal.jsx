@@ -14,6 +14,7 @@ export const UserSearchModal = ({
   const [query, setQuery] = useState('');
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [openingUserId, setOpeningUserId] = useState(null);
   const [error, setError] = useState('');
   const { user } = useAuth();
 
@@ -22,6 +23,7 @@ export const UserSearchModal = ({
       setQuery('');
       setUsers([]);
       setError('');
+      setOpeningUserId(null);
       return;
     }
 
@@ -46,9 +48,19 @@ export const UserSearchModal = ({
     };
   }, [isOpen, query, user]);
 
-  const handleSelect = (user) => {
-    onSelectUser(user._id);
-    onClose();
+  const handleSelect = async (selectedUser) => {
+    if (openingUserId) return;
+    try {
+      setOpeningUserId(selectedUser._id);
+      setError('');
+      await onSelectUser(selectedUser._id);
+      onClose();
+    } catch (err) {
+      console.error('Failed to open conversation:', err);
+      setError(err.message || 'Failed to open conversation.');
+    } finally {
+      setOpeningUserId(null);
+    }
   };
 
   return (
@@ -82,11 +94,14 @@ export const UserSearchModal = ({
           ) : (
             users.map((u) => {
               const isOnline = onlineUsers.has(u._id) || u.isOnline;
+              const isOpening = openingUserId === u._id;
               return (
                 <div
                   key={u._id}
                   onClick={() => handleSelect(u)}
-                  className="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700/40 cursor-pointer transition"
+                  className={`flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700/40 cursor-pointer transition ${
+                    isOpening ? 'opacity-70 pointer-events-none' : ''
+                  }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <Avatar
@@ -111,10 +126,15 @@ export const UserSearchModal = ({
                       e.stopPropagation();
                       handleSelect(u);
                     }}
-                    className="p-2 rounded-xl text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition"
+                    disabled={Boolean(openingUserId)}
+                    className="p-2 rounded-xl text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition disabled:opacity-50"
                     title="Start Chat"
                   >
-                    <MessageSquarePlus className="w-5 h-5" />
+                    {isOpening ? (
+                      <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <MessageSquarePlus className="w-5 h-5" />
+                    )}
                   </button>
                 </div>
               );

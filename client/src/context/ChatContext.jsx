@@ -198,15 +198,7 @@ export const ChatProvider = ({ children }) => {
     return () => clearInterval(intervalId);
   }, [activeConversation?._id]);
 
-  useEffect(() => {
-    if (
-      activeConversationId &&
-      conversationRecords.length &&
-      !conversationRecords.some((conversation) => conversation._id === activeConversationId)
-    ) {
-      setActiveConversationId(null);
-    }
-  }, [activeConversationId, conversationRecords]);
+
 
   const selectConversation = useCallback((conversation) => {
     setActiveConversationId(conversation?._id || null);
@@ -242,7 +234,16 @@ export const ChatProvider = ({ children }) => {
 
   const openConversationWithUser = async (otherUserId) => {
     if (!user) throw new Error('You must be signed in to start a conversation.');
-    const conversation = await createConversation(user, otherUserId);
+    const result = await createConversation(user, otherUserId);
+    const conversation = result?.conversation || result;
+    const otherProfile = result?.otherProfile;
+    if (otherProfile) {
+      setProfiles((current) => ({ ...current, [otherUserId]: otherProfile }));
+    }
+    setConversationRecords((current) => {
+      if (current.some((c) => c._id === conversation._id)) return current;
+      return [conversation, ...current];
+    });
     setActiveConversationId(conversation._id);
     return conversation;
   };

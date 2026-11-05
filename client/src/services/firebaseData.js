@@ -491,8 +491,10 @@ export const createConversation = async (currentUser, otherUserId) => {
         });
       }
     });
+    const otherProfile = toSafeUser(otherSnapshot.id, otherSnapshot.data());
     const snapshot = await getDoc(conversationRef);
-    return mapConversation(snapshot, currentUser._id);
+    const conversation = mapConversation(snapshot, currentUser._id);
+    return { conversation, otherProfile };
   } catch (error) {
     throw toError(error);
   }
