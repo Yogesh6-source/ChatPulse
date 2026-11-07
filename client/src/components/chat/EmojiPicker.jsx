@@ -43,7 +43,7 @@ export const EmojiPicker = ({ onSelect, onClose }) => {
 
   return (
     <div
-      className="absolute bottom-14 left-0 sm:left-4 z-50 w-80 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-3 animate-slide-up flex flex-col"
+      className="absolute bottom-14 left-1 sm:left-4 z-50 w-[calc(100vw-1.5rem)] sm:w-80 max-w-[340px] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-3 animate-slide-up flex flex-col"
       onClick={(e) => e.stopPropagation()}
     >
       {/* Category selector */}
@@ -73,18 +73,21 @@ export const EmojiPicker = ({ onSelect, onClose }) => {
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search emojis..."
-          className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg bg-gray-100 dark:bg-gray-700/70 border border-transparent focus:border-emerald-500 focus:bg-white dark:focus:bg-gray-800 text-gray-900 dark:text-gray-100 outline-none transition"
+          placeholder="Search emoji..."
+          className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-gray-100 dark:bg-gray-700 border-none outline-none text-gray-800 dark:text-gray-200"
         />
       </div>
 
-      {/* Grid */}
-      <div className="grid grid-cols-8 gap-1 max-h-56 overflow-y-auto p-1">
-        {filteredEmojis.map((emoji, index) => (
+      {/* Emoji grid */}
+      <div className="grid grid-cols-7 gap-1 max-h-48 overflow-y-auto p-1">
+        {filteredEmojis.map((emoji, idx) => (
           <button
-            key={index}
-            onClick={() => onSelect(emoji)}
-            className="w-8 h-8 flex items-center justify-center text-xl rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 hover:scale-125 transition transform"
+            key={idx}
+            onClick={() => {
+              onSelect(emoji);
+              onClose();
+            }}
+            className="w-8 h-8 flex items-center justify-center text-lg hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
           >
             {emoji}
           </button>

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { ArrowLeft, MoreVertical, Phone, Video, Search } from 'lucide-react';
+import { ArrowLeft, MoreVertical, Search } from 'lucide-react';
 import { Avatar } from '../common/Avatar';
 import { MessageBubble } from './MessageBubble';
 import { MessageInput } from './MessageInput';
@@ -86,16 +86,19 @@ export const ChatPanel = ({
   });
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-chat-bgLight dark:bg-chat-bgDark overflow-hidden select-none">
+    <div className="w-full flex-1 flex flex-col h-full bg-chat-bgLight dark:bg-chat-bgDark overflow-hidden select-none">
       {/* Header */}
-      <div className="h-16 px-4 bg-white/95 dark:bg-[#202c33] border-b border-gray-200/80 dark:border-gray-800 flex items-center justify-between z-10 backdrop-blur-md shadow-xs">
-        <div className="flex items-center gap-3">
-          {/* Back button for mobile */}
+      <div className="h-16 px-3 sm:px-4 bg-white/95 dark:bg-[#202c33] border-b border-gray-200/80 dark:border-gray-800 flex items-center justify-between z-10 backdrop-blur-md shadow-xs flex-shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          {/* Back button for mobile & small screens */}
           <button
+            type="button"
             onClick={onBack}
-            className="md:hidden p-1.5 -ml-1 rounded-full text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition"
+            className="md:hidden p-2 -ml-1 rounded-full text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60 active:scale-90 transition flex items-center justify-center flex-shrink-0 cursor-pointer"
+            aria-label="Back to conversations"
+            title="Back to chats"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5 stroke-[2.5]" />
           </button>
 
           <Avatar
@@ -104,9 +107,10 @@ export const ChatPanel = ({
             size="md"
             isOnline={isOtherUserOnline}
             showStatus={true}
+            className="flex-shrink-0"
           />
 
-          <div className="overflow-hidden">
+          <div className="overflow-hidden min-w-0">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
               {otherUser.fullName}
             </h3>
@@ -127,7 +131,7 @@ export const ChatPanel = ({
         </div>
 
         {/* Action icons */}
-        <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-0.5 sm:gap-1 text-gray-500 dark:text-gray-400 flex-shrink-0">
           <button
             title="Search in conversation"
             className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700/60 transition"
@@ -146,7 +150,7 @@ export const ChatPanel = ({
       {/* Message History Area */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto px-4 py-4 chat-wallpaper-light dark:chat-wallpaper-dark flex flex-col"
+        className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 chat-wallpaper-light dark:chat-wallpaper-dark flex flex-col"
       >
         {loadingMessages ? (
           <div className="flex-1 flex items-center justify-center">

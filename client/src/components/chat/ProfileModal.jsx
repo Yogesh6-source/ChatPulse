@@ -1,8 +1,12 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Modal } from '../common/Modal';
 import { Avatar } from '../common/Avatar';
-import { Camera, Check, AlertCircle } from 'lucide-react';
+import { Camera, Check, AlertCircle, Bell, BellRing } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import {
+  registerForPushNotifications,
+  checkMessagingSupport,
+} from '../../services/firebaseNotifications';
 
 export const ProfileModal = ({ isOpen, onClose }) => {
   const { user, updateProfile } = useAuth();
@@ -15,8 +19,39 @@ export const ProfileModal = ({ isOpen, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [notificationPermission, setNotificationPermission] = useState('default');
+  const [isSupported, setIsSupported] = useState(false);
+  const [enablingNotifications, setEnablingNotifications] = useState(false);
 
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    checkMessagingSupport().then((supported) => {
+      setIsSupported(supported);
+      if (supported && typeof Notification !== 'undefined') {
+        setNotificationPermission(Notification.permission);
+      }
+    });
+  }, []);
+
+  const handleEnableNotifications = async () => {
+    if (!user?._id) return;
+    setEnablingNotifications(true);
+    try {
+      const res = await registerForPushNotifications(user._id);
+      if (res.success) {
+        setNotificationPermission('granted');
+        setSuccess('Phone notifications enabled successfully!');
+        setTimeout(() => setSuccess(''), 2000);
+      } else if (res.permission) {
+        setNotificationPermission(res.permission);
+      }
+    } catch (err) {
+      setError('Failed to enable notifications: ' + err.message);
+    } finally {
+      setEnablingNotifications(false);
+    }
+  };
 
   const handleAvatarChange = (e) => {
     const file = e.target.files?.[0];
@@ -155,6 +190,39 @@ export const ProfileModal = ({ isOpen, onClose }) => {
               className="w-full px-3.5 py-2 text-sm rounded-xl bg-gray-200/50 dark:bg-gray-800/80 border border-transparent text-gray-500 outline-none cursor-not-allowed"
             />
           </div>
+
+          {/* Device Push Notifications Setting */}
+          {isSupported && (
+            <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200/60 dark:border-gray-700/60 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Bell className="w-4 h-4 text-emerald-500" />
+                <div>
+                  <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                    Phone & Browser Alerts
+                  </p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                    {notificationPermission === 'granted'
+                      ? 'Active on this device'
+                      : 'Get alerts when your phone is locked'}
+                  </p>
+                </div>
+              </div>
+              {notificationPermission !== 'granted' ? (
+                <button
+                  type="button"
+                  onClick={handleEnableNotifications}
+                  disabled={enablingNotifications}
+                  className="px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-medium rounded-lg transition disabled:opacity-50"
+                >
+                  {enablingNotifications ? 'Enabling...' : 'Enable'}
+                </button>
+              ) : (
+                <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                  <Check className="w-3.5 h-3.5" /> Enabled
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Buttons */}

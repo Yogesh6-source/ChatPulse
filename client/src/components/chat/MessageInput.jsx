@@ -124,7 +124,7 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
   };
 
   return (
-    <div className="relative p-3 bg-white/95 dark:bg-[#202c33] border-t border-gray-200 dark:border-gray-800 backdrop-blur-md">
+    <div className="relative p-2 sm:p-3 bg-white/95 dark:bg-[#202c33] border-t border-gray-200 dark:border-gray-800 backdrop-blur-md flex-shrink-0">
       {/* Attachment Preview Banner */}
       {selectedFile && (
         <div className="flex items-center gap-3 p-2.5 mb-2 bg-gray-100 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 animate-slide-up">
@@ -174,12 +174,12 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="flex items-end gap-2">
+      <form onSubmit={handleSubmit} className="flex items-end gap-1.5 sm:gap-2">
         {/* Emoji Button */}
         <button
           type="button"
           onClick={() => setShowEmojiPicker((prev) => !prev)}
-          className={`p-2.5 rounded-full transition ${
+          className={`p-2 sm:p-2.5 rounded-full transition flex-shrink-0 ${
             showEmojiPicker
               ? 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
               : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/60'
@@ -200,14 +200,14 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="p-2.5 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition"
+          className="p-2 sm:p-2.5 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition flex-shrink-0"
           title="Attach Image or Document"
         >
           <Paperclip className="w-5 h-5" />
         </button>
 
         {/* Text Input */}
-        <div className="flex-1 min-h-[42px] max-h-32 bg-gray-100 dark:bg-gray-700/70 rounded-2xl flex items-center px-4 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500 transition">
+        <div className="flex-1 min-h-[40px] max-h-32 bg-gray-100 dark:bg-gray-700/70 rounded-2xl flex items-center px-3.5 sm:px-4 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500 transition min-w-0">
           <textarea
             ref={textareaRef}
             rows={1}
@@ -215,7 +215,7 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder="Type a message..."
-            className="w-full bg-transparent resize-none border-none outline-none text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-400 leading-normal max-h-28 overflow-y-auto"
+            className="w-full bg-transparent resize-none border-none outline-none text-base sm:text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-400 leading-normal max-h-28 overflow-y-auto"
           />
         </div>
 
@@ -223,7 +223,7 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
         <button
           type="submit"
           disabled={(!content.trim() && !selectedFile) || isSubmitting}
-          className={`p-2.5 rounded-full transition flex items-center justify-center ${
+          className={`p-2 sm:p-2.5 rounded-full transition flex items-center justify-center flex-shrink-0 ${
             content.trim() || selectedFile
               ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-md transform hover:scale-105 active:scale-95'
               : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'

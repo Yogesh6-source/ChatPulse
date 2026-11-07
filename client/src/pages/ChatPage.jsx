@@ -28,7 +28,7 @@ export const ChatPage = () => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   return (
-    <div className="h-screen w-screen flex bg-gray-100 dark:bg-gray-950 overflow-hidden">
+    <div className="fixed inset-0 h-[100dvh] w-full flex bg-gray-100 dark:bg-gray-950 overflow-hidden select-none">
       {/* Search Users Modal */}
       <UserSearchModal
         isOpen={isSearchOpen}
@@ -43,8 +43,8 @@ export const ChatPage = () => {
         onClose={() => setIsProfileOpen(false)}
       />
 
-      {/* Main Container - WhatsApp Web style bounded frame on ultra-wide screens */}
-      <div className="w-full h-full flex overflow-hidden shadow-2xl relative">
+      {/* Main Container */}
+      <div className="w-full h-full flex overflow-hidden relative">
         {/* Left Sidebar */}
         <div
           className={`${
@@ -66,7 +66,7 @@ export const ChatPage = () => {
         <div
           className={`${
             activeConversation ? 'flex' : 'hidden md:flex'
-          } flex-1 h-full overflow-hidden`}
+          } w-full md:w-auto flex-1 h-full overflow-hidden`}
         >
           {activeConversation ? (
             <ChatPanel

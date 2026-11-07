@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Avatar } from '../common/Avatar';
 import { ConversationItem } from './ConversationItem';
 import {
@@ -10,9 +10,15 @@ import {
   X,
   MessageCircle,
   Settings,
+  Bell,
+  BellRing,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import {
+  registerForPushNotifications,
+  checkMessagingSupport,
+} from '../../services/firebaseNotifications';
 
 export const Sidebar = ({
   conversations,
@@ -26,6 +32,40 @@ export const Sidebar = ({
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [searchQuery, setSearchQuery] = useState('');
+  const [notificationPermission, setNotificationPermission] = useState('default');
+  const [isSupported, setIsSupported] = useState(false);
+  const [showNotificationBanner, setShowNotificationBanner] = useState(true);
+  const [enablingNotifications, setEnablingNotifications] = useState(false);
+
+  useEffect(() => {
+    checkMessagingSupport().then((supported) => {
+      setIsSupported(supported);
+      if (supported && typeof Notification !== 'undefined') {
+        setNotificationPermission(Notification.permission);
+        if (Notification.permission === 'granted') {
+          setShowNotificationBanner(false);
+        }
+      }
+    });
+  }, []);
+
+  const handleEnableNotifications = async () => {
+    if (!user?._id) return;
+    setEnablingNotifications(true);
+    try {
+      const res = await registerForPushNotifications(user._id);
+      if (res.success) {
+        setNotificationPermission('granted');
+        setShowNotificationBanner(false);
+      } else if (res.permission) {
+        setNotificationPermission(res.permission);
+      }
+    } catch (err) {
+      console.error('Failed to enable push notifications:', err);
+    } finally {
+      setEnablingNotifications(false);
+    }
+  };
 
   // Filter conversations locally based on search query
   const filteredConversations = conversations.filter((conv) => {
@@ -42,11 +82,11 @@ export const Sidebar = ({
   return (
     <div className="w-full md:w-80 lg:w-96 h-full flex flex-col bg-white dark:bg-[#111b21] border-r border-gray-200 dark:border-gray-800 select-none">
       {/* Sidebar Header */}
-      <div className="h-16 px-4 bg-gray-50/80 dark:bg-[#202c33] border-b border-gray-200/80 dark:border-gray-800 flex items-center justify-between">
+      <div className="h-16 px-3 sm:px-4 bg-gray-50/80 dark:bg-[#202c33] border-b border-gray-200/80 dark:border-gray-800 flex items-center justify-between gap-2 flex-shrink-0">
         {/* User profile trigger */}
         <div
           onClick={onOpenProfile}
-          className="flex items-center gap-3 cursor-pointer group p-1 -ml-1 rounded-xl hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition"
+          className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group p-1 -ml-1 rounded-xl hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition min-w-0"
           title="Edit Profile"
         >
           <Avatar
@@ -55,8 +95,9 @@ export const Sidebar = ({
             size="md"
             isOnline={true}
             showStatus={true}
+            className="flex-shrink-0"
           />
-          <div className="overflow-hidden">
+          <div className="overflow-hidden min-w-0">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate group-hover:text-emerald-500 transition">
               {user?.fullName}
             </h3>
@@ -65,51 +106,105 @@ export const Sidebar = ({
         </div>
 
         {/* Action icons */}
-        <div className="flex items-center gap-0.5 text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-0.5 sm:gap-1 text-gray-500 dark:text-gray-400 flex-shrink-0">
+          {/* Push Notification Toggle Button */}
+          {isSupported && (
+            <button
+              onClick={handleEnableNotifications}
+              disabled={enablingNotifications || notificationPermission === 'granted'}
+              className={`p-1.5 sm:p-2 rounded-full transition ${
+                notificationPermission === 'granted'
+                  ? 'text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-default'
+                  : 'text-gray-500 hover:bg-gray-200/70 dark:hover:bg-gray-700/70 animate-pulse'
+              }`}
+              title={
+                notificationPermission === 'granted'
+                  ? 'Phone notifications enabled'
+                  : 'Enable phone notifications'
+              }
+            >
+              {notificationPermission === 'granted' ? (
+                <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500" />
+              ) : (
+                <BellRing className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" />
+              )}
+            </button>
+          )}
+
           {/* New Chat Button */}
           <button
             onClick={onOpenSearch}
-            className="p-2 rounded-full hover:bg-gray-200/70 dark:hover:bg-gray-700/70 text-gray-600 dark:text-gray-300 transition"
+            className="p-1.5 sm:p-2 rounded-full hover:bg-gray-200/70 dark:hover:bg-gray-700/70 text-gray-600 dark:text-gray-300 transition"
             title="New Chat"
           >
-            <MessageSquarePlus className="w-5 h-5 text-emerald-500" />
+            <MessageSquarePlus className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500" />
           </button>
 
           {/* Theme Toggle */}
           <button
             onClick={toggleTheme}
-            className="p-2 rounded-full hover:bg-gray-200/70 dark:hover:bg-gray-700/70 transition"
+            className="p-1.5 sm:p-2 rounded-full hover:bg-gray-200/70 dark:hover:bg-gray-700/70 transition"
             title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           >
             {theme === 'dark' ? (
-              <Sun className="w-5 h-5 text-amber-400" />
+              <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
             ) : (
-              <Moon className="w-5 h-5 text-gray-600" />
+              <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
             )}
           </button>
 
           {/* Profile Settings */}
           <button
             onClick={onOpenProfile}
-            className="p-2 rounded-full hover:bg-gray-200/70 dark:hover:bg-gray-700/70 transition"
+            className="p-1.5 sm:p-2 rounded-full hover:bg-gray-200/70 dark:hover:bg-gray-700/70 transition"
             title="Profile Settings"
           >
-            <Settings className="w-5 h-5" />
+            <Settings className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
 
           {/* Logout */}
           <button
             onClick={logout}
-            className="p-2 rounded-full hover:bg-rose-50 dark:hover:bg-rose-950/40 text-gray-500 hover:text-rose-500 transition"
+            className="p-1.5 sm:p-2 rounded-full hover:bg-rose-50 dark:hover:bg-rose-950/40 text-gray-500 hover:text-rose-500 transition"
             title="Log Out"
           >
-            <LogOut className="w-5 h-5" />
+            <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
         </div>
       </div>
 
+      {/* Push Notification Promo Banner */}
+      {showNotificationBanner && isSupported && notificationPermission !== 'granted' && (
+        <div className="m-2.5 p-3 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-emerald-500/5 border border-emerald-500/20 flex flex-col gap-2 flex-shrink-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-semibold text-xs">
+              <BellRing className="w-4 h-4 flex-shrink-0 animate-bounce" />
+              <span>Get notifications on your phone</span>
+            </div>
+            <button
+              onClick={() => setShowNotificationBanner(false)}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              title="Dismiss"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">
+            Enable notifications to receive message alerts directly on your phone lock screen, even when ChatPulse is closed.
+          </p>
+          <button
+            onClick={handleEnableNotifications}
+            disabled={enablingNotifications}
+            className="self-start px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold rounded-xl shadow-xs transition flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <Bell className="w-3.5 h-3.5" />
+            {enablingNotifications ? 'Enabling...' : 'Enable Notifications'}
+          </button>
+        </div>
+      )}
+
       {/* Search Bar */}
-      <div className="p-3 border-b border-gray-100 dark:border-gray-800/80">
+      <div className="p-3 border-b border-gray-100 dark:border-gray-800/80 flex-shrink-0">
         <div className="relative flex items-center">
           <Search className="w-4 h-4 absolute left-3 text-gray-400" />
           <input

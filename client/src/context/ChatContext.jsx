@@ -18,6 +18,7 @@ import {
   sendConversationMessage,
   setTyping,
 } from '../services/firebaseData';
+import { setupForegroundNotifications } from '../services/firebaseNotifications';
 import { useAuth } from './AuthContext';
 
 const ChatContext = createContext();
@@ -61,6 +62,18 @@ export const ChatProvider = ({ children }) => {
   const activeConversation =
     conversations.find((conversation) => conversation._id === activeConversationId) || null;
 
+  // Listen for browser popstate (e.g. mobile back gesture or back button)
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handlePopState = () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const convId = urlParams.get('c');
+      setActiveConversationId(convId || null);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   useEffect(() => {
     if (!user) {
       setConversationRecords([]);
@@ -80,6 +93,13 @@ export const ChatProvider = ({ children }) => {
       (records) => {
         setConversationRecords(records);
         setLoadingConversations(false);
+        if (typeof window !== 'undefined') {
+          const urlParams = new URLSearchParams(window.location.search);
+          const convId = urlParams.get('c');
+          if (convId && records.some((r) => r._id === convId)) {
+            setActiveConversationId((prev) => prev || convId);
+          }
+        }
       },
       (error) => {
         console.error('Failed to listen for Firebase conversations:', error);
@@ -103,6 +123,32 @@ export const ChatProvider = ({ children }) => {
     return () => {
       unsubscribeConversations();
       unsubscribePresence();
+    };
+  }, [user]);
+
+  // Handle incoming foreground notifications
+  useEffect(() => {
+    if (!user) return undefined;
+    let unsub = () => {};
+    setupForegroundNotifications((payload) => {
+      const title = payload.notification?.title || payload.data?.title || 'New Message';
+      const body = payload.notification?.body || payload.data?.body || '';
+      if (document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        try {
+          new Notification(title, {
+            body,
+            icon: '/pwa-192x192.png',
+            tag: payload.data?.conversationId ? `conv_${payload.data.conversationId}` : 'chatpulse',
+          });
+        } catch (e) {
+          console.error('Foreground notification error:', e);
+        }
+      }
+    }).then((cleanup) => {
+      unsub = cleanup;
+    });
+    return () => {
+      if (typeof unsub === 'function') unsub();
     };
   }, [user]);
 
@@ -198,10 +244,23 @@ export const ChatProvider = ({ children }) => {
     return () => clearInterval(intervalId);
   }, [activeConversation?._id]);
 
-
-
   const selectConversation = useCallback((conversation) => {
-    setActiveConversationId(conversation?._id || null);
+    const id = conversation?._id || (typeof conversation === 'string' ? conversation : null);
+    setActiveConversationId(id);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (id) {
+        url.searchParams.set('c', id);
+        if (new URLSearchParams(window.location.search).get('c') !== id) {
+          window.history.pushState({ c: id }, '', url);
+        }
+      } else {
+        url.searchParams.delete('c');
+        if (new URLSearchParams(window.location.search).has('c')) {
+          window.history.replaceState({}, '', url);
+        }
+      }
+    }
   }, []);
 
   const sendMessage = async ({ content, file = null }) => {
@@ -244,7 +303,7 @@ export const ChatProvider = ({ children }) => {
       if (current.some((c) => c._id === conversation._id)) return current;
       return [conversation, ...current];
     });
-    setActiveConversationId(conversation._id);
+    selectConversation(conversation._id);
     return conversation;
   };
 

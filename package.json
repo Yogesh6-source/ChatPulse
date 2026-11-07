@@ -4,9 +4,12 @@
   "description": "Real-Time Private Chat Web Application",
   "scripts": {
     "install:client": "cd client && npm install",
-    "install:all": "npm run install:client",
+    "install:functions": "cd functions && npm install",
+    "install:all": "npm run install:client && npm run install:functions",
     "dev": "npm run dev:client",
     "dev:client": "cd client && npm run dev",
-    "build": "cd client && npm run build"
+    "build": "cd client && npm run build",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:rules": "firebase deploy --only firestore:rules,database"
   }
 }
