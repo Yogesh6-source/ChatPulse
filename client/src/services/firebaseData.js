@@ -21,6 +21,7 @@ import {
   runTransaction,
   serverTimestamp,
   setDoc,
+  Timestamp,
   updateDoc,
   where,
   writeBatch,
@@ -115,6 +116,23 @@ const timestampToIso = (value) => {
   return value;
 };
 
+export const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+export const isMessageExpired = (message) => {
+  if (!message) return false;
+  // If explicitly set expiresAt has passed
+  if (message.expiresAt) {
+    const expTime = new Date(message.expiresAt).getTime();
+    if (!isNaN(expTime) && expTime <= Date.now()) return true;
+  }
+  // Delete after 7 days of viewing (readAt)
+  if (message.readAt) {
+    const readTime = new Date(message.readAt).getTime();
+    if (!isNaN(readTime) && Date.now() - readTime >= SEVEN_DAYS_MS) return true;
+  }
+  return false;
+};
+
 const mapMessage = (snapshot) => {
   const data = snapshot.data();
   return {
@@ -123,6 +141,9 @@ const mapMessage = (snapshot) => {
     createdAt: timestampToIso(data.createdAt) || new Date().toISOString(),
     updatedAt: timestampToIso(data.updatedAt),
     readAt: timestampToIso(data.readAt),
+    expiresAt: timestampToIso(data.expiresAt),
+    replyTo: data.replyTo || null,
+    reactions: data.reactions || {},
   };
 };
 
@@ -406,36 +427,67 @@ export const listenUserProfile = (uid, onChange, onError) =>
     onChange(snapshot.exists() ? toSafeUser(uid, snapshot.data()) : null);
   }, onError);
 
+export const cleanupExpiredMessages = async (conversationId, docSnapshots) => {
+  try {
+    const expiredDocs = docSnapshots.filter((docSnap) => {
+      const data = docSnap.data();
+      return isMessageExpired({
+        expiresAt: timestampToIso(data.expiresAt),
+        readAt: timestampToIso(data.readAt),
+      });
+    });
+
+    if (!expiredDocs.length) return;
+
+    const batch = writeBatch(db);
+    expiredDocs.forEach((docSnap) => {
+      batch.delete(docSnap.ref);
+    });
+    await batch.commit();
+  } catch (err) {
+    // Silent catch if deletion permissions or offline
+    console.debug('Expired messages cleanup skipped:', err?.message);
+  }
+};
+
 export const listenMessages = (conversationId, uid, onChange, onError) => {
+  // Query conversation messages. Increased limit to 250 prevents prematurely truncating conversation history.
   const messagesQuery = query(
     collection(db, 'conversations', conversationId, 'messages'),
     orderBy('createdAt', 'desc'),
-    limit(50)
+    limit(250)
   );
   let latestSnapshot = 0;
   return onSnapshot(
     messagesQuery,
     async (snapshot) => {
       const currentSnapshot = ++latestSnapshot;
-      const messages = snapshot.docs.map(mapMessage).reverse();
+      const allMapped = snapshot.docs.map(mapMessage);
+      // Filter out messages that have exceeded 7 days since viewing
+      const activeMessages = allMapped.filter((message) => !isMessageExpired(message));
+      const messages = activeMessages.reverse();
+
       const messagesWithUrls = await Promise.all(
-          messages.map(async (message) => {
-            if (message.filePath) {
-              try {
-                message.fileUrl = await getAttachmentUrl(message.filePath);
-              } catch (urlError) {
-                console.error('Failed to get signed URL for attachment:', urlError);
-                message.fileUrl = null;
-              }
+        messages.map(async (message) => {
+          if (message.filePath) {
+            try {
+              message.fileUrl = await getAttachmentUrl(message.filePath);
+            } catch (urlError) {
+              console.error('Failed to get signed URL for attachment:', urlError);
+              message.fileUrl = null;
             }
-            return message;
-          })
-        );
-        if (currentSnapshot === latestSnapshot) {
-          onChange(messagesWithUrls, snapshot.size === 50);
-        }
-      markMessagesRead(conversationId, uid, messages).catch((error) => {
+          }
+          return message;
+        })
+      );
+      if (currentSnapshot === latestSnapshot) {
+        onChange(messagesWithUrls, snapshot.size === 250);
+      }
+      markMessagesRead(conversationId, uid, allMapped).catch((error) => {
         console.error('Failed to mark messages as read:', error);
+      });
+      cleanupExpiredMessages(conversationId, snapshot.docs).catch((error) => {
+        console.debug('Failed to cleanup expired messages:', error);
       });
     },
     onError
@@ -448,11 +500,18 @@ const markMessagesRead = async (conversationId, uid, messages) => {
   );
   if (!unreadMessages.length) return;
 
+  const expiresTimestamp = Timestamp.fromMillis(Date.now() + SEVEN_DAYS_MS);
+
   const batch = writeBatch(db);
   unreadMessages.forEach((message) => {
     batch.update(
       doc(db, 'conversations', conversationId, 'messages', message._id),
-      { status: 'read', readAt: serverTimestamp(), updatedAt: serverTimestamp() }
+      {
+        status: 'read',
+        readAt: serverTimestamp(),
+        expiresAt: expiresTimestamp,
+        updatedAt: serverTimestamp(),
+      }
     );
   });
   batch.update(doc(db, 'conversations', conversationId), {
@@ -500,7 +559,13 @@ export const createConversation = async (currentUser, otherUserId) => {
   }
 };
 
-export const sendConversationMessage = async (conversationId, user, content, file) => {
+export const sendConversationMessage = async (
+  conversationId,
+  user,
+  content,
+  file,
+  replyTo = null
+) => {
   requireFirebase();
   const normalizedContent = content.trim();
   if (!normalizedContent && !file) return null;
@@ -534,6 +599,18 @@ export const sendConversationMessage = async (conversationId, user, content, fil
 
   const messageRef = doc(collection(db, 'conversations', conversationId, 'messages'));
   const messageType = file ? (file.type.startsWith('image/') ? 'image' : 'file') : 'text';
+
+  const replyData = replyTo
+    ? {
+        _id: replyTo._id,
+        senderId: replyTo.senderId || replyTo.sender?._id || '',
+        senderName: replyTo.sender?.fullName || replyTo.sender?.username || replyTo.senderName || 'User',
+        content: replyTo.content || (replyTo.messageType === 'image' ? '📷 Photo' : '📎 Attachment'),
+        messageType: replyTo.messageType || 'text',
+        fileName: replyTo.fileName || null,
+      }
+    : null;
+
   const messageData = {
     conversationId,
     senderId: user._id,
@@ -546,6 +623,9 @@ export const sendConversationMessage = async (conversationId, user, content, fil
     fileName: file?.name || null,
     fileSize: file?.size || null,
     status: 'sent',
+    replyTo: replyData,
+    reactions: {},
+    expiresAt: null,
     deletedForEveryone: false,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -572,6 +652,37 @@ export const sendConversationMessage = async (conversationId, user, content, fil
     throw toError(error);
   }
   return { ...messageData, _id: messageRef.id, createdAt: new Date().toISOString() };
+};
+
+export const toggleMessageReaction = async (conversationId, messageId, uid, emoji) => {
+  requireFirebase();
+  if (!emoji || !uid) return;
+
+  const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
+  const messageSnapshot = await getDoc(messageRef);
+  if (!messageSnapshot.exists()) throw new Error('Message no longer exists.');
+
+  const data = messageSnapshot.data();
+  const currentReactions = { ...(data.reactions || {}) };
+  const currentUsers = Array.isArray(currentReactions[emoji]) ? [...currentReactions[emoji]] : [];
+
+  const index = currentUsers.indexOf(uid);
+  if (index > -1) {
+    currentUsers.splice(index, 1);
+  } else {
+    currentUsers.push(uid);
+  }
+
+  if (currentUsers.length > 0) {
+    currentReactions[emoji] = currentUsers;
+  } else {
+    delete currentReactions[emoji];
+  }
+
+  await updateDoc(messageRef, {
+    reactions: currentReactions,
+    updatedAt: serverTimestamp(),
+  });
 };
 
 export const deleteConversationMessage = async (conversationId, messageId, uid) => {

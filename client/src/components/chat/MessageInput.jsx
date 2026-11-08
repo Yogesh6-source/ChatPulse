@@ -1,8 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Smile, Paperclip, Send, X, FileText, AlertCircle } from 'lucide-react';
+import { Smile, Paperclip, Send, X, FileText, AlertCircle, Reply } from 'lucide-react';
 import { EmojiPicker } from './EmojiPicker';
 
-export const MessageInput = ({ onSendMessage, onTyping }) => {
+export const MessageInput = ({
+  onSendMessage,
+  onTyping,
+  replyingTo = null,
+  onCancelReply = null,
+}) => {
   const [content, setContent] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [filePreview, setFilePreview] = useState(null);
@@ -14,6 +19,13 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
   const textareaRef = useRef(null);
   const typingTimerRef = useRef(null);
   const isTypingRef = useRef(false);
+
+  // Auto-focus textarea when replying
+  useEffect(() => {
+    if (replyingTo && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [replyingTo]);
 
   // Auto-resize textarea height
   useEffect(() => {
@@ -97,6 +109,7 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
       await onSendMessage({
         content: content.trim(),
         file: selectedFile,
+        replyTo: replyingTo,
       });
 
       setContent('');
@@ -104,6 +117,7 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
       setFilePreview(null);
       setShowEmojiPicker(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      if (onCancelReply) onCancelReply();
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
         textareaRef.current.focus();
@@ -125,6 +139,34 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
 
   return (
     <div className="relative p-2 sm:p-3 bg-white/95 dark:bg-[#202c33] border-t border-gray-200 dark:border-gray-800 backdrop-blur-md flex-shrink-0">
+      {/* Replying Banner */}
+      {replyingTo && (
+        <div className="flex items-center justify-between p-2.5 mb-2 bg-emerald-50 dark:bg-emerald-950/40 border-l-4 border-emerald-500 rounded-r-xl border-y border-r border-emerald-200/50 dark:border-emerald-800/40 animate-slide-up select-none">
+          <div className="flex items-center gap-2 overflow-hidden flex-1 mr-2">
+            <Reply className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+            <div className="overflow-hidden flex-1">
+              <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 truncate">
+                Replying to {replyingTo.sender?.fullName || replyingTo.sender?.username || 'User'}
+              </p>
+              <p className="text-xs text-gray-600 dark:text-gray-300 truncate">
+                {replyingTo.content ||
+                  (replyingTo.messageType === 'image'
+                    ? '📷 Photo'
+                    : '📎 Attachment')}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onCancelReply}
+            className="p-1 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition cursor-pointer"
+            title="Cancel reply"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Attachment Preview Banner */}
       {selectedFile && (
         <div className="flex items-center gap-3 p-2.5 mb-2 bg-gray-100 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 animate-slide-up">
@@ -148,6 +190,7 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
             </p>
           </div>
           <button
+            type="button"
             onClick={removeFile}
             className="p-1 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700"
           >
@@ -179,7 +222,7 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
         <button
           type="button"
           onClick={() => setShowEmojiPicker((prev) => !prev)}
-          className={`p-2 sm:p-2.5 rounded-full transition flex-shrink-0 ${
+          className={`p-2 sm:p-2.5 rounded-full transition flex-shrink-0 cursor-pointer ${
             showEmojiPicker
               ? 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
               : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/60'
@@ -200,7 +243,7 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="p-2 sm:p-2.5 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition flex-shrink-0"
+          className="p-2 sm:p-2.5 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition flex-shrink-0 cursor-pointer"
           title="Attach Image or Document"
         >
           <Paperclip className="w-5 h-5" />
@@ -214,7 +257,7 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
             value={content}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
+            placeholder={replyingTo ? 'Type your reply...' : 'Type a message...'}
             className="w-full bg-transparent resize-none border-none outline-none text-base sm:text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-400 leading-normal max-h-28 overflow-y-auto"
           />
         </div>
@@ -223,7 +266,7 @@ export const MessageInput = ({ onSendMessage, onTyping }) => {
         <button
           type="submit"
           disabled={(!content.trim() && !selectedFile) || isSubmitting}
-          className={`p-2 sm:p-2.5 rounded-full transition flex items-center justify-center flex-shrink-0 ${
+          className={`p-2 sm:p-2.5 rounded-full transition flex items-center justify-center flex-shrink-0 cursor-pointer ${
             content.trim() || selectedFile
               ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-md transform hover:scale-105 active:scale-95'
               : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'

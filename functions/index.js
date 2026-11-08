@@ -83,6 +83,9 @@ exports.sendMessageNotification = onDocumentCreated(
           ? `${message.content.slice(0, 117)}...`
           : message.content;
     }
+    if (message.replyTo) {
+      bodyText = `↩️ ${bodyText}`;
+    }
 
     const destinationUrl = `/?c=${conversationId}`;
 

@@ -17,6 +17,7 @@ import {
   listenUserProfile,
   sendConversationMessage,
   setTyping,
+  toggleMessageReaction,
 } from '../services/firebaseData';
 import { setupForegroundNotifications } from '../services/firebaseNotifications';
 import { useAuth } from './AuthContext';
@@ -35,6 +36,7 @@ export const ChatProvider = ({ children }) => {
   const [presence, setPresence] = useState({});
   const [typingUsers, setTypingUsers] = useState({});
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null);
   const typingHeartbeatRef = useRef(null);
 
   const conversations = useMemo(
@@ -247,6 +249,7 @@ export const ChatProvider = ({ children }) => {
   const selectConversation = useCallback((conversation) => {
     const id = conversation?._id || (typeof conversation === 'string' ? conversation : null);
     setActiveConversationId(id);
+    setReplyingTo(null);
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
       if (id) {
@@ -263,14 +266,21 @@ export const ChatProvider = ({ children }) => {
     }
   }, []);
 
-  const sendMessage = async ({ content, file = null }) => {
+  const sendMessage = async ({ content, file = null, replyTo = null }) => {
     if (!activeConversation || !user) return;
-    await sendConversationMessage(activeConversation._id, user, content, file);
+    const targetReply = replyTo !== null ? replyTo : replyingTo;
+    await sendConversationMessage(activeConversation._id, user, content, file, targetReply);
+    setReplyingTo(null);
   };
 
   const deleteMessage = async (messageId) => {
     if (!activeConversation || !user) return;
     await deleteConversationMessage(activeConversation._id, messageId, user._id);
+  };
+
+  const toggleReaction = async (messageId, emoji) => {
+    if (!activeConversation || !user) return;
+    await toggleMessageReaction(activeConversation._id, messageId, user._id, emoji);
   };
 
   const emitTyping = (isTyping) => {
@@ -319,6 +329,10 @@ export const ChatProvider = ({ children }) => {
         onlineUsers,
         typingUsers,
         hasMoreMessages,
+        replyingTo,
+        setReplyingTo,
+        cancelReply: () => setReplyingTo(null),
+        toggleReaction,
         sendMessage,
         deleteMessage,
         emitTyping,

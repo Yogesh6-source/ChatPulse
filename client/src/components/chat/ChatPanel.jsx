@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { ArrowLeft, MoreVertical, Search } from 'lucide-react';
+import { ArrowLeft, MoreVertical, Search, ShieldCheck, Clock } from 'lucide-react';
 import { Avatar } from '../common/Avatar';
 import { MessageBubble } from './MessageBubble';
 import { MessageInput } from './MessageInput';
@@ -37,6 +37,10 @@ export const ChatPanel = ({
   onBack,
   onSendMessage,
   onDeleteMessage,
+  onReplyMessage,
+  onReactMessage,
+  replyingTo,
+  onCancelReply,
   onTyping,
 }) => {
   const messagesEndRef = useRef(null);
@@ -130,17 +134,25 @@ export const ChatPanel = ({
           </div>
         </div>
 
-        {/* Action icons */}
-        <div className="flex items-center gap-0.5 sm:gap-1 text-gray-500 dark:text-gray-400 flex-shrink-0">
+        {/* Action icons & Retention info */}
+        <div className="flex items-center gap-1 sm:gap-1.5 text-gray-500 dark:text-gray-400 flex-shrink-0">
+          <div
+            title="Messages automatically delete 7 days after viewing"
+            className="hidden sm:flex items-center gap-1 text-[11px] font-medium px-2 py-1 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded-full border border-emerald-200/60 dark:border-emerald-800/50"
+          >
+            <Clock className="w-3 h-3 text-emerald-500" />
+            <span>7-day retention</span>
+          </div>
+
           <button
             title="Search in conversation"
-            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700/60 transition"
+            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700/60 transition cursor-pointer"
           >
             <Search className="w-4 h-4" />
           </button>
           <button
             title="Options"
-            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700/60 transition"
+            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700/60 transition cursor-pointer"
           >
             <MoreVertical className="w-4 h-4" />
           </button>
@@ -158,12 +170,27 @@ export const ChatPanel = ({
           </div>
         ) : messages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
-            <div className="p-3 bg-white/80 dark:bg-gray-800/80 rounded-2xl shadow-sm text-xs text-gray-500 dark:text-gray-400 max-w-xs border border-gray-100 dark:border-gray-700">
-              👋 No messages yet. Say hello to start the conversation!
+            <div className="p-4 bg-white/85 dark:bg-gray-800/85 backdrop-blur-md rounded-2xl shadow-sm text-xs text-gray-600 dark:text-gray-300 max-w-sm border border-gray-100 dark:border-gray-700 flex flex-col items-center gap-2">
+              <span className="text-2xl">👋</span>
+              <p className="font-medium text-gray-800 dark:text-gray-200">
+                No messages yet. Say hello to start the conversation!
+              </p>
+              <div className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-gray-400 mt-1">
+                <Clock className="w-3 h-3 text-emerald-500" />
+                <span>Messages delete 7 days after viewing</span>
+              </div>
             </div>
           </div>
         ) : (
           <div className="flex-1 flex flex-col justify-end">
+            {/* Top Retention Banner */}
+            <div className="flex justify-center my-2 select-none">
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-white/80 dark:bg-gray-800/80 backdrop-blur-md rounded-full shadow-2xs text-[10px] sm:text-[11px] text-gray-500 dark:text-gray-400 border border-gray-200/50 dark:border-gray-700/50">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                <span>Messages automatically delete 7 days after viewing</span>
+              </div>
+            </div>
+
             {groupedMessages.map((item) => {
               if (item.type === 'date_divider') {
                 return (
@@ -184,7 +211,10 @@ export const ChatPanel = ({
                   key={item._id}
                   message={item}
                   isMe={isMe}
+                  currentUserId={currentUserId}
                   onDelete={onDeleteMessage}
+                  onReply={onReplyMessage}
+                  onReact={onReactMessage}
                 />
               );
             })}
@@ -204,7 +234,12 @@ export const ChatPanel = ({
       </div>
 
       {/* Input */}
-      <MessageInput onSendMessage={onSendMessage} onTyping={onTyping} />
+      <MessageInput
+        onSendMessage={onSendMessage}
+        onTyping={onTyping}
+        replyingTo={replyingTo}
+        onCancelReply={onCancelReply}
+      />
     </div>
   );
 };

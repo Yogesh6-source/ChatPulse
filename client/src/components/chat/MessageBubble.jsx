@@ -1,6 +1,19 @@
-import React, { useState } from 'react';
-import { Check, CheckCheck, Trash2, FileText, Download, Ban } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  Check,
+  CheckCheck,
+  Trash2,
+  FileText,
+  Download,
+  Ban,
+  Reply,
+  CornerUpLeft,
+  SmilePlus,
+  Clock,
+} from 'lucide-react';
 import { format } from 'date-fns';
+
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉'];
 
 const formatFileSize = (bytes) => {
   if (!bytes) return '';
@@ -9,13 +22,34 @@ const formatFileSize = (bytes) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-export const MessageBubble = ({ message, isMe, onDelete }) => {
+export const MessageBubble = ({
+  message,
+  isMe,
+  currentUserId,
+  onDelete,
+  onReply,
+  onReact,
+}) => {
   const [showOptions, setShowOptions] = useState(false);
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const reactionPickerRef = useRef(null);
 
   const formattedTime = message.createdAt
     ? format(new Date(message.createdAt), 'h:mm a')
     : '';
+
+  // Close reaction picker on outside click
+  useEffect(() => {
+    if (!showReactionPicker) return undefined;
+    const handleOutsideClick = (e) => {
+      if (reactionPickerRef.current && !reactionPickerRef.current.contains(e.target)) {
+        setShowReactionPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [showReactionPicker]);
 
   // Status icon
   const renderStatus = () => {
@@ -31,10 +65,28 @@ export const MessageBubble = ({ message, isMe, onDelete }) => {
   };
 
   const isDeleted = message.deletedForEveryone;
+  const reactionsMap = message.reactions || {};
+  const reactionEntries = Object.entries(reactionsMap).filter(
+    ([, uids]) => Array.isArray(uids) && uids.length > 0
+  );
+  const hasReactions = reactionEntries.length > 0;
+
+  const scrollToRepliedMessage = (targetId) => {
+    if (!targetId) return;
+    const el = document.getElementById(`msg-${targetId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-2', 'ring-emerald-400', 'transition-all');
+      setTimeout(() => {
+        el.classList.remove('ring-2', 'ring-emerald-400');
+      }, 2000);
+    }
+  };
 
   return (
     <div
-      className={`relative group flex flex-col mb-1.5 ${
+      id={`msg-${message._id}`}
+      className={`relative group flex flex-col mb-1.5 transition-all duration-300 rounded-2xl ${
         isMe ? 'items-end' : 'items-start'
       }`}
       onMouseEnter={() => setShowOptions(true)}
@@ -43,34 +95,104 @@ export const MessageBubble = ({ message, isMe, onDelete }) => {
         setConfirmDelete(false);
       }}
     >
-      <div className="flex items-center gap-1 max-w-[85%] sm:max-w-[70%]">
-        {/* Delete option for sender */}
-        {isMe && !isDeleted && showOptions && (
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center pr-1">
-            {!confirmDelete ? (
+      <div
+        className={`flex items-center gap-1 max-w-[88%] sm:max-w-[75%] ${
+          isMe ? 'flex-row' : 'flex-row-reverse'
+        }`}
+      >
+        {/* Action Bar (Reply, React, Delete) */}
+        {!isDeleted && (showOptions || showReactionPicker) && (
+          <div
+            className={`opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 px-1 ${
+              showReactionPicker ? 'opacity-100' : ''
+            }`}
+          >
+            {/* Reply Button */}
+            {onReply && (
               <button
-                onClick={() => setConfirmDelete(true)}
-                title="Delete message"
-                className="p-1 rounded-full text-gray-400 hover:text-rose-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                type="button"
+                onClick={() => onReply(message)}
+                title="Reply"
+                className="p-1 rounded-full text-gray-400 hover:text-emerald-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition cursor-pointer"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Reply className="w-3.5 h-3.5" />
               </button>
-            ) : (
-              <div className="flex items-center gap-1 bg-white dark:bg-gray-800 px-2 py-0.5 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 text-xs">
-                <span className="text-gray-500 text-[10px]">Delete?</span>
+            )}
+
+            {/* React Button & Popover */}
+            {onReact && (
+              <div className="relative" ref={reactionPickerRef}>
                 <button
-                  onClick={() => onDelete(message._id)}
-                  className="text-rose-500 font-semibold hover:underline"
+                  type="button"
+                  onClick={() => setShowReactionPicker((prev) => !prev)}
+                  title="React with emoji"
+                  className={`p-1 rounded-full transition cursor-pointer ${
+                    showReactionPicker
+                      ? 'text-emerald-500 bg-gray-100 dark:bg-gray-800'
+                      : 'text-gray-400 hover:text-emerald-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
                 >
-                  Yes
+                  <SmilePlus className="w-3.5 h-3.5" />
                 </button>
-                <button
-                  onClick={() => setConfirmDelete(false)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-                >
-                  No
-                </button>
+
+                {/* Quick Reaction Floating Palette */}
+                {showReactionPicker && (
+                  <div
+                    className={`absolute bottom-full mb-1 z-30 flex items-center gap-1 bg-white dark:bg-gray-800 p-1.5 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 animate-slide-up ${
+                      isMe ? 'right-0' : 'left-0'
+                    }`}
+                  >
+                    {QUICK_REACTIONS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => {
+                          onReact(message._id, emoji);
+                          setShowReactionPicker(false);
+                        }}
+                        className="w-7 h-7 flex items-center justify-center text-lg hover:scale-125 transition-transform cursor-pointer rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+                        title={emoji}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
+            )}
+
+            {/* Delete option for sender */}
+            {isMe && onDelete && (
+              <>
+                {!confirmDelete ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(true)}
+                    title="Delete message"
+                    className="p-1 rounded-full text-gray-400 hover:text-rose-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1 bg-white dark:bg-gray-800 px-2 py-0.5 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 text-xs">
+                    <span className="text-gray-500 text-[10px]">Delete?</span>
+                    <button
+                      type="button"
+                      onClick={() => onDelete(message._id)}
+                      className="text-rose-500 font-semibold hover:underline cursor-pointer"
+                    >
+                      Yes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDelete(false)}
+                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
+                    >
+                      No
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -90,6 +212,34 @@ export const MessageBubble = ({ message, isMe, onDelete }) => {
             </div>
           ) : (
             <>
+              {/* Quoted Replying Header */}
+              {message.replyTo && (
+                <div
+                  onClick={() => scrollToRepliedMessage(message.replyTo._id)}
+                  title="Click to view replied message"
+                  className={`mb-2 px-2.5 py-1.5 rounded-xl border-l-4 cursor-pointer text-xs transition-opacity hover:opacity-90 select-none ${
+                    isMe
+                      ? 'bg-black/20 border-emerald-300 text-white'
+                      : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-gray-800 dark:text-gray-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-1 font-semibold text-[11px] text-emerald-300 dark:text-emerald-400 mb-0.5">
+                    <CornerUpLeft className="w-3 h-3 flex-shrink-0" />
+                    <span className="truncate">
+                      {message.replyTo.senderId === currentUserId
+                        ? 'You'
+                        : message.replyTo.senderName || 'User'}
+                    </span>
+                  </div>
+                  <p className="truncate text-[11px] opacity-90 line-clamp-1">
+                    {message.replyTo.content ||
+                      (message.replyTo.messageType === 'image'
+                        ? '📷 Photo'
+                        : '📎 Attachment')}
+                  </p>
+                </div>
+              )}
+
               {/* Image attachment */}
               {message.messageType === 'image' && message.fileUrl && (
                 <div className="mb-2 rounded-xl overflow-hidden max-w-xs">
@@ -148,7 +298,7 @@ export const MessageBubble = ({ message, isMe, onDelete }) => {
             </>
           )}
 
-          {/* Timestamp & Status */}
+          {/* Timestamp, 7-Day Auto-delete info & Status */}
           <div
             className={`flex items-center justify-end gap-1 mt-1 text-[10px] select-none ${
               isMe
@@ -156,11 +306,51 @@ export const MessageBubble = ({ message, isMe, onDelete }) => {
                 : 'text-gray-400 dark:text-gray-400'
             }`}
           >
+            {/* 7-Day disappearing retention indicator */}
+            <span
+              title="Disappears 7 days after viewing"
+              className="inline-flex items-center opacity-70 hover:opacity-100 cursor-help"
+            >
+              <Clock className="w-2.5 h-2.5 mr-0.5" />
+            </span>
             <span>{formattedTime}</span>
             {renderStatus()}
           </div>
         </div>
       </div>
+
+      {/* Emoji Reactions List attached to message */}
+      {!isDeleted && hasReactions && (
+        <div
+          className={`flex flex-wrap gap-1 mt-1 px-1 z-10 ${
+            isMe ? 'justify-end' : 'justify-start'
+          }`}
+        >
+          {reactionEntries.map(([emoji, uids]) => {
+            const hasReacted = currentUserId && uids.includes(currentUserId);
+            return (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => onReact && onReact(message._id, emoji)}
+                title={
+                  hasReacted
+                    ? `You and ${uids.length - 1} other reacted with ${emoji}`
+                    : `${uids.length} person(s) reacted with ${emoji}`
+                }
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs transition-all shadow-xs border cursor-pointer ${
+                  hasReacted
+                    ? 'bg-emerald-100 dark:bg-emerald-950/80 border-emerald-400 text-emerald-800 dark:text-emerald-300 font-semibold ring-1 ring-emerald-400/50'
+                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                }`}
+              >
+                <span className="text-sm leading-none">{emoji}</span>
+                <span className="text-[10px] font-medium leading-none">{uids.length}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

@@ -110,7 +110,8 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly([
             'conversationId', 'senderId', 'receiverId', 'sender', 'content',
             'messageType', 'fileUrl', 'filePath', 'fileName', 'fileSize',
-            'status', 'deletedForEveryone', 'createdAt', 'updatedAt'
+            'status', 'replyTo', 'reactions', 'expiresAt', 'deletedForEveryone',
+            'createdAt', 'updatedAt'
           ])
           && request.resource.data.senderId == request.auth.uid
           && request.resource.data.sender._id == request.auth.uid
@@ -126,12 +127,18 @@ service cloud.firestore {
             (
               resource.data.receiverId == request.auth.uid
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                'status', 'readAt', 'updatedAt'
+                'status', 'readAt', 'updatedAt', 'expiresAt'
               ])
               && (
                 (resource.data.status == 'sent' && request.resource.data.status in ['delivered', 'read'])
                 || (resource.data.status == 'delivered' && request.resource.data.status == 'read')
               )
+            )
+            || (
+              isConversationParticipant(parentConversation())
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'reactions', 'updatedAt'
+              ])
             )
             || (
               resource.data.senderId == request.auth.uid
@@ -143,7 +150,11 @@ service cloud.firestore {
               && request.resource.data.deletedForEveryone == true
             )
           );
-        allow delete: if false;
+        allow delete: if isConversationParticipant(parentConversation())
+          && (
+            (resource.data.expiresAt != null && resource.data.expiresAt < request.time)
+            || (resource.data.readAt != null && resource.data.readAt < request.time - duration.value(7, 'd'))
+          );
       }
 
       match /typing/{uid} {

@@ -18,6 +18,10 @@ export const ChatPage = () => {
     loadingMessages,
     onlineUsers,
     typingUsers,
+    replyingTo,
+    setReplyingTo,
+    cancelReply,
+    toggleReaction,
     sendMessage,
     deleteMessage,
     emitTyping,
@@ -79,6 +83,10 @@ export const ChatPage = () => {
               onBack={() => setActiveConversation(null)}
               onSendMessage={sendMessage}
               onDeleteMessage={deleteMessage}
+              onReplyMessage={setReplyingTo}
+              onReactMessage={toggleReaction}
+              replyingTo={replyingTo}
+              onCancelReply={cancelReply}
               onTyping={emitTyping}
             />
           ) : (
