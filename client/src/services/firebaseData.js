@@ -21,7 +21,6 @@ import {
   runTransaction,
   serverTimestamp,
   setDoc,
-  Timestamp,
   updateDoc,
   where,
   writeBatch,
@@ -40,7 +39,7 @@ import { requireSupabase, supabase } from './supabase';
 
 const USERNAME_PATTERN = /^[a-zA-Z0-9_.-]{3,30}$/;
 const DEFAULT_BIO = 'Hey there! I am using RealTime Chat.';
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 const AVATAR_BUCKET = 'chatpulse-avatars';
 const ATTACHMENT_BUCKET = 'chatpulse-files';
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
@@ -116,22 +115,6 @@ const timestampToIso = (value) => {
   return value;
 };
 
-export const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
-
-export const isMessageExpired = (message) => {
-  if (!message) return false;
-  // If explicitly set expiresAt has passed
-  if (message.expiresAt) {
-    const expTime = new Date(message.expiresAt).getTime();
-    if (!isNaN(expTime) && expTime <= Date.now()) return true;
-  }
-  // Delete after 7 days of viewing (readAt)
-  if (message.readAt) {
-    const readTime = new Date(message.readAt).getTime();
-    if (!isNaN(readTime) && Date.now() - readTime >= SEVEN_DAYS_MS) return true;
-  }
-  return false;
-};
 
 const mapMessage = (snapshot) => {
   const data = snapshot.data();
@@ -141,7 +124,6 @@ const mapMessage = (snapshot) => {
     createdAt: timestampToIso(data.createdAt) || new Date().toISOString(),
     updatedAt: timestampToIso(data.updatedAt),
     readAt: timestampToIso(data.readAt),
-    expiresAt: timestampToIso(data.expiresAt),
     replyTo: data.replyTo || null,
     reactions: data.reactions || {},
   };
@@ -427,29 +409,6 @@ export const listenUserProfile = (uid, onChange, onError) =>
     onChange(snapshot.exists() ? toSafeUser(uid, snapshot.data()) : null);
   }, onError);
 
-export const cleanupExpiredMessages = async (conversationId, docSnapshots) => {
-  try {
-    const expiredDocs = docSnapshots.filter((docSnap) => {
-      const data = docSnap.data();
-      return isMessageExpired({
-        expiresAt: timestampToIso(data.expiresAt),
-        readAt: timestampToIso(data.readAt),
-      });
-    });
-
-    if (!expiredDocs.length) return;
-
-    const batch = writeBatch(db);
-    expiredDocs.forEach((docSnap) => {
-      batch.delete(docSnap.ref);
-    });
-    await batch.commit();
-  } catch (err) {
-    // Silent catch if deletion permissions or offline
-    console.debug('Expired messages cleanup skipped:', err?.message);
-  }
-};
-
 export const listenMessages = (conversationId, uid, onChange, onError) => {
   // Query conversation messages. Increased limit to 250 prevents prematurely truncating conversation history.
   const messagesQuery = query(
@@ -463,9 +422,7 @@ export const listenMessages = (conversationId, uid, onChange, onError) => {
     async (snapshot) => {
       const currentSnapshot = ++latestSnapshot;
       const allMapped = snapshot.docs.map(mapMessage);
-      // Filter out messages that have exceeded 7 days since viewing
-      const activeMessages = allMapped.filter((message) => !isMessageExpired(message));
-      const messages = activeMessages.reverse();
+      const messages = allMapped.slice().reverse();
 
       const messagesWithUrls = await Promise.all(
         messages.map(async (message) => {
@@ -486,9 +443,6 @@ export const listenMessages = (conversationId, uid, onChange, onError) => {
       markMessagesRead(conversationId, uid, allMapped).catch((error) => {
         console.error('Failed to mark messages as read:', error);
       });
-      cleanupExpiredMessages(conversationId, snapshot.docs).catch((error) => {
-        console.debug('Failed to cleanup expired messages:', error);
-      });
     },
     onError
   );
@@ -500,8 +454,6 @@ const markMessagesRead = async (conversationId, uid, messages) => {
   );
   if (!unreadMessages.length) return;
 
-  const expiresTimestamp = Timestamp.fromMillis(Date.now() + SEVEN_DAYS_MS);
-
   const batch = writeBatch(db);
   unreadMessages.forEach((message) => {
     batch.update(
@@ -509,7 +461,6 @@ const markMessagesRead = async (conversationId, uid, messages) => {
       {
         status: 'read',
         readAt: serverTimestamp(),
-        expiresAt: expiresTimestamp,
         updatedAt: serverTimestamp(),
       }
     );
@@ -570,7 +521,7 @@ export const sendConversationMessage = async (
   const normalizedContent = content.trim();
   if (!normalizedContent && !file) return null;
   if (file && file.size > MAX_UPLOAD_BYTES) {
-    throw new Error('File size exceeds the 10MB limit.');
+    throw new Error('File size exceeds the 50MB limit.');
   }
 
   const conversationRef = doc(db, 'conversations', conversationId);
@@ -598,14 +549,16 @@ export const sendConversationMessage = async (
   }
 
   const messageRef = doc(collection(db, 'conversations', conversationId, 'messages'));
-  const messageType = file ? (file.type.startsWith('image/') ? 'image' : 'file') : 'text';
+  const messageType = file
+    ? (file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file')
+    : 'text';
 
   const replyData = replyTo
     ? {
         _id: replyTo._id,
         senderId: replyTo.senderId || replyTo.sender?._id || '',
         senderName: replyTo.sender?.fullName || replyTo.sender?.username || replyTo.senderName || 'User',
-        content: replyTo.content || (replyTo.messageType === 'image' ? '📷 Photo' : '📎 Attachment'),
+        content: replyTo.content || (replyTo.messageType === 'image' ? '📷 Photo' : replyTo.messageType === 'video' ? '🎥 Video' : '📎 Attachment'),
         messageType: replyTo.messageType || 'text',
         fileName: replyTo.fileName || null,
       }
@@ -625,7 +578,6 @@ export const sendConversationMessage = async (
     status: 'sent',
     replyTo: replyData,
     reactions: {},
-    expiresAt: null,
     deletedForEveryone: false,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),

@@ -7,6 +7,7 @@ export const MessageInput = ({
   onTyping,
   replyingTo = null,
   onCancelReply = null,
+  currentUserId = null,
 }) => {
   const [content, setContent] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
@@ -64,8 +65,8 @@ export const MessageInput = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 10 * 1024 * 1024) {
-      alert('File size exceeds the 10MB limit.');
+    if (file.size > 50 * 1024 * 1024) {
+      alert('File size exceeds the 50MB limit.');
       return;
     }
 
@@ -74,14 +75,20 @@ export const MessageInput = ({
 
     if (file.type.startsWith('image/')) {
       const reader = new FileReader();
-      reader.onload = () => setFilePreview(reader.result);
+      reader.onload = () => setFilePreview({ type: 'image', src: reader.result });
       reader.readAsDataURL(file);
+    } else if (file.type.startsWith('video/')) {
+      const url = URL.createObjectURL(file);
+      setFilePreview({ type: 'video', src: url });
     } else {
       setFilePreview(null);
     }
   };
 
   const removeFile = () => {
+    if (filePreview?.type === 'video' && filePreview.src) {
+      URL.revokeObjectURL(filePreview.src);
+    }
     setSelectedFile(null);
     setFilePreview(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -112,6 +119,9 @@ export const MessageInput = ({
         replyTo: replyingTo,
       });
 
+      if (filePreview?.type === 'video' && filePreview.src) {
+        URL.revokeObjectURL(filePreview.src);
+      }
       setContent('');
       setSelectedFile(null);
       setFilePreview(null);
@@ -146,12 +156,16 @@ export const MessageInput = ({
             <Reply className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
             <div className="overflow-hidden flex-1">
               <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 truncate">
-                Replying to {replyingTo.sender?.fullName || replyingTo.sender?.username || 'User'}
+                Replying to {replyingTo.senderId === currentUserId || replyingTo.sender?._id === currentUserId
+                  ? 'yourself'
+                  : replyingTo.sender?.fullName || replyingTo.sender?.username || 'User'}
               </p>
-              <p className="text-xs text-gray-600 dark:text-gray-300 truncate">
+              <p className="text-xs text-gray-600 dark:text-gray-300 break-words whitespace-pre-wrap max-h-16 overflow-y-auto">
                 {replyingTo.content ||
                   (replyingTo.messageType === 'image'
                     ? '📷 Photo'
+                    : replyingTo.messageType === 'video'
+                    ? '🎥 Video'
                     : '📎 Attachment')}
               </p>
             </div>
@@ -171,11 +185,19 @@ export const MessageInput = ({
       {selectedFile && (
         <div className="flex items-center gap-3 p-2.5 mb-2 bg-gray-100 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 animate-slide-up">
           {filePreview ? (
-            <img
-              src={filePreview}
-              alt="Preview"
-              className="w-12 h-12 rounded-lg object-cover"
-            />
+            filePreview.type === 'video' ? (
+              <video
+                src={filePreview.src}
+                className="w-12 h-12 rounded-lg object-cover"
+                muted
+              />
+            ) : (
+              <img
+                src={filePreview.src}
+                alt="Preview"
+                className="w-12 h-12 rounded-lg object-cover"
+              />
+            )
           ) : (
             <div className="w-12 h-12 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
               <FileText className="w-6 h-6" />
@@ -238,13 +260,13 @@ export const MessageInput = ({
           type="file"
           className="hidden"
           onChange={handleFileChange}
-          accept="image/*,.pdf,.doc,.docx,.txt,.zip"
+          accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip"
         />
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
           className="p-2 sm:p-2.5 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition flex-shrink-0 cursor-pointer"
-          title="Attach Image or Document"
+          title="Attach Image, Video, or Document"
         >
           <Paperclip className="w-5 h-5" />
         </button>

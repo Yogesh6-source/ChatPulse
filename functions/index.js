@@ -75,6 +75,8 @@ exports.sendMessageNotification = onDocumentCreated(
     let bodyText = 'Sent you a message';
     if (message.messageType === 'image') {
       bodyText = '📷 Photo';
+    } else if (message.messageType === 'video') {
+      bodyText = '🎥 Video';
     } else if (message.messageType === 'file') {
       bodyText = message.fileName ? `📎 ${message.fileName}` : '📎 Attachment';
     } else if (message.content) {

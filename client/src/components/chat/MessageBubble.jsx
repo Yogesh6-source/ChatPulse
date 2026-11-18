@@ -9,7 +9,6 @@ import {
   Reply,
   CornerUpLeft,
   SmilePlus,
-  Clock,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -231,10 +230,12 @@ export const MessageBubble = ({
                         : message.replyTo.senderName || 'User'}
                     </span>
                   </div>
-                  <p className="truncate text-[11px] opacity-90 line-clamp-1">
+                  <p className="text-[11px] opacity-90 break-words whitespace-pre-wrap max-w-full [overflow-wrap:anywhere]">
                     {message.replyTo.content ||
                       (message.replyTo.messageType === 'image'
                         ? '📷 Photo'
+                        : message.replyTo.messageType === 'video'
+                        ? '🎥 Video'
                         : '📎 Attachment')}
                   </p>
                 </div>
@@ -256,6 +257,21 @@ export const MessageBubble = ({
                       loading="lazy"
                     />
                   </a>
+                </div>
+              )}
+
+              {/* Video attachment */}
+              {message.messageType === 'video' && message.fileUrl && (
+                <div className="mb-2 rounded-xl overflow-hidden max-w-xs">
+                  <video
+                    src={message.fileUrl}
+                    controls
+                    preload="metadata"
+                    className="w-full max-h-72 rounded-xl"
+                  />
+                  {message.fileName && (
+                    <p className="text-[10px] opacity-75 mt-0.5 truncate">{message.fileName}</p>
+                  )}
                 </div>
               )}
 
@@ -291,14 +307,14 @@ export const MessageBubble = ({
 
               {/* Text content */}
               {message.content && (
-                <p className="whitespace-pre-wrap leading-relaxed select-text">
+                <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed select-text">
                   {message.content}
                 </p>
               )}
             </>
           )}
 
-          {/* Timestamp, 7-Day Auto-delete info & Status */}
+          {/* Timestamp & Status */}
           <div
             className={`flex items-center justify-end gap-1 mt-1 text-[10px] select-none ${
               isMe
@@ -306,13 +322,6 @@ export const MessageBubble = ({
                 : 'text-gray-400 dark:text-gray-400'
             }`}
           >
-            {/* 7-Day disappearing retention indicator */}
-            <span
-              title="Disappears 7 days after viewing"
-              className="inline-flex items-center opacity-70 hover:opacity-100 cursor-help"
-            >
-              <Clock className="w-2.5 h-2.5 mr-0.5" />
-            </span>
             <span>{formattedTime}</span>
             {renderStatus()}
           </div>

@@ -119,7 +119,7 @@ service cloud.firestore {
           && request.resource.data.conversationId == conversationId
           && request.resource.data.content is string
           && request.resource.data.content.size() <= 10000
-          && request.resource.data.messageType in ['text', 'image', 'file']
+          && request.resource.data.messageType in ['text', 'image', 'file', 'video']
           && request.resource.data.status == 'sent'
           && request.resource.data.deletedForEveryone == false;
         allow update: if isConversationParticipant(parentConversation())
@@ -150,11 +150,7 @@ service cloud.firestore {
               && request.resource.data.deletedForEveryone == true
             )
           );
-        allow delete: if isConversationParticipant(parentConversation())
-          && (
-            (resource.data.expiresAt != null && resource.data.expiresAt < request.time)
-            || (resource.data.readAt != null && resource.data.readAt < request.time - duration.value(7, 'd'))
-          );
+        allow delete: if false;
       }
 
       match /typing/{uid} {
