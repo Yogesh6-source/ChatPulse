@@ -80,11 +80,14 @@ export const ChatPanel = ({
     if (!containerRef.current || messages.length === 0) return;
 
     if (isInitialLoadRef.current) {
-      // Initial opening of chat: jump to bottom instantly so user sees latest messages like WhatsApp
+      // Initial opening of chat: jump to bottom instantly so user sees latest messages like WhatsApp.
+      // Retry multiple times to handle slow DOM layout on low-end devices (images/videos pushing layout taller).
       isInitialLoadRef.current = false;
       scrollToBottom('auto');
-      const timer = setTimeout(() => scrollToBottom('auto'), 50);
-      return () => clearTimeout(timer);
+      const t1 = setTimeout(() => scrollToBottom('auto'), 50);
+      const t2 = setTimeout(() => scrollToBottom('auto'), 150);
+      const t3 = setTimeout(() => scrollToBottom('auto'), 300);
+      return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
     }
 
     const el = containerRef.current;

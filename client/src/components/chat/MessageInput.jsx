@@ -13,7 +13,6 @@ export const MessageInput = ({
   const [selectedFile, setSelectedFile] = useState(null);
   const [filePreview, setFilePreview] = useState(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [sendError, setSendError] = useState('');
 
   const fileInputRef = useRef(null);
@@ -106,9 +105,9 @@ export const MessageInput = ({
     const textToSend = content.trim();
     const fileToSend = selectedFile;
     const replyToSend = replyingTo;
-    if ((!textToSend && !fileToSend) || isSubmitting) return;
+    if (!textToSend && !fileToSend) return;
 
-    // Reset input immediately like WhatsApp
+    // Reset input immediately like WhatsApp — user can type next message right away
     setContent('');
     setSelectedFile(null);
     if (filePreview?.type === 'video' && filePreview.src) {
@@ -122,15 +121,21 @@ export const MessageInput = ({
       textareaRef.current.style.height = 'auto';
       textareaRef.current.focus();
     }
+    setSendError('');
+
+    // Clear typing indicator before sending
+    if (isTypingRef.current) {
+      isTypingRef.current = false;
+      onTyping(false);
+    }
+    if (typingTimerRef.current) {
+      clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = null;
+    }
 
     try {
-      setIsSubmitting(true);
-      setSendError('');
-      if (isTypingRef.current) {
-        isTypingRef.current = false;
-        onTyping(false);
-      }
-
+      // Fire-and-forget: optimistic UI in ChatContext shows message immediately.
+      // We still await so we can catch and surface any real errors.
       await onSendMessage({
         content: textToSend,
         file: fileToSend,
@@ -138,11 +143,10 @@ export const MessageInput = ({
       });
     } catch (err) {
       console.error('Failed to send:', err);
+      // Restore input content so user can retry
       if (textToSend) setContent(textToSend);
       if (fileToSend) setSelectedFile(fileToSend);
       setSendError(err.message || 'Failed to send the message.');
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -293,7 +297,7 @@ export const MessageInput = ({
         {/* Send Button */}
         <button
           type="submit"
-          disabled={(!content.trim() && !selectedFile) || isSubmitting}
+          disabled={!content.trim() && !selectedFile}
           className={`p-2 sm:p-2.5 rounded-full transition flex items-center justify-center flex-shrink-0 cursor-pointer ${
             content.trim() || selectedFile
               ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-md transform hover:scale-105 active:scale-95'
@@ -301,11 +305,7 @@ export const MessageInput = ({
           }`}
           title="Send"
         >
-          {isSubmitting ? (
-            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <Send className="w-5 h-5" />
-          )}
+          <Send className="w-5 h-5" />
         </button>
       </form>
     </div>
