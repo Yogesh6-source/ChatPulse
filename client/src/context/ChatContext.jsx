@@ -193,13 +193,19 @@ export const ChatProvider = ({ children }) => {
       activeConversation._id,
       user._id,
       (nextMessages, hasMore) => {
-        // Replace full list from server, but keep any optimistic messages that
-        // haven't yet been confirmed (i.e. their ID doesn't appear in the snapshot).
-        // This prevents a brief flash where the message disappears then reappears.
+        // Replace list from server and drop any optimistic messages that have
+        // now been confirmed by either doc ID or clientMessageId.
         setMessages((prev) => {
-          const confirmedIds = new Set(nextMessages.map((m) => m._id));
+          const confirmedIds = new Set();
+          nextMessages.forEach((m) => {
+            if (m._id) confirmedIds.add(m._id);
+            if (m.clientMessageId) confirmedIds.add(m.clientMessageId);
+          });
           const pendingOptimistic = prev.filter(
-            (m) => m._id.startsWith('optimistic_') && !confirmedIds.has(m._id)
+            (m) =>
+              (m._id?.startsWith?.('client_') || m._id?.startsWith?.('optimistic_')) &&
+              !confirmedIds.has(m._id) &&
+              !confirmedIds.has(m.clientMessageId)
           );
           return [...nextMessages, ...pendingOptimistic];
         });
@@ -282,81 +288,126 @@ export const ChatProvider = ({ children }) => {
     }
   }, []);
 
-  const sendMessage = useCallback(async ({ content, file = null, replyTo = null }) => {
-    if (!activeConversation || !user) return;
-    const targetReply = replyTo !== null ? replyTo : replyingTo;
-    setReplyingTo(null);
+  const sendMessage = useCallback(
+    async ({ content, file = null, replyTo = null }) => {
+      if (!activeConversation || !user) return;
+      const targetReply = replyTo !== null ? replyTo : replyingTo;
+      setReplyingTo(null);
 
-    // --- Optimistic UI: show message instantly before server round-trip ---
-    const optimisticId = `optimistic_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const optimisticMessage = {
-      _id: optimisticId,
-      conversationId: activeConversation._id,
-      senderId: user._id,
-      sender: {
-        _id: user._id,
-        fullName: user.fullName,
-        username: user.username,
-        profilePicture: user.profilePicture || '',
-      },
-      content: content?.trim() || '',
-      messageType: file
-        ? file.type.startsWith('image/')
-          ? 'image'
-          : file.type.startsWith('video/')
-          ? 'video'
-          : 'file'
-        : 'text',
-      fileUrl: file ? URL.createObjectURL(file) : null,
-      filePath: null,
-      fileName: file?.name || null,
-      fileSize: file?.size || null,
-      status: 'sending',
-      replyTo: targetReply
-        ? {
-            _id: targetReply._id,
-            senderId: targetReply.senderId || targetReply.sender?._id || '',
-            senderName:
-              targetReply.sender?.fullName ||
-              targetReply.sender?.username ||
-              targetReply.senderName ||
-              'User',
-            content:
-              targetReply.content ||
-              (targetReply.messageType === 'image'
-                ? '📷 Photo'
-                : targetReply.messageType === 'video'
-                ? '🎥 Video'
-                : '📎 Attachment'),
-            messageType: targetReply.messageType || 'text',
-          }
-        : null,
-      reactions: {},
-      deletedForEveryone: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+      // Instantly resolve receiverId without waiting for a getDoc roundtrip
+      const otherParticipant = activeConversation.participants?.find(
+        (p) => p._id !== user._id
+      );
+      const receiverId =
+        otherParticipant?._id ||
+        activeConversation.participantIds?.find((id) => id !== user._id) ||
+        activeConversation._id.split('_').find((id) => id !== user._id);
 
-    // Append optimistic message immediately so user sees it right away
-    setMessages((prev) => [...prev, optimisticMessage]);
+      // Unique client message ID for instant optimistic tracking
+      const clientMessageId = `client_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
-    try {
-      await sendConversationMessage(activeConversation._id, user, content, file, targetReply);
-      // The Firestore real-time listener will replace the optimistic message
-      // with the real one automatically (snapshot replaces full messages array).
-      // We also revoke the blob URL if we created one to avoid memory leaks.
-      if (file && optimisticMessage.fileUrl) {
-        try { URL.revokeObjectURL(optimisticMessage.fileUrl); } catch (_) {}
+      const optimisticMessage = {
+        _id: clientMessageId,
+        clientMessageId,
+        conversationId: activeConversation._id,
+        senderId: user._id,
+        receiverId,
+        sender: {
+          _id: user._id,
+          fullName: user.fullName,
+          username: user.username,
+          profilePicture: user.profilePicture || '',
+        },
+        content: content?.trim() || '',
+        messageType: file
+          ? file.type.startsWith('image/')
+            ? 'image'
+            : file.type.startsWith('video/')
+            ? 'video'
+            : 'file'
+          : 'text',
+        fileUrl: file ? URL.createObjectURL(file) : null,
+        filePath: null,
+        fileName: file?.name || null,
+        fileSize: file?.size || null,
+        status: 'sending',
+        replyTo: targetReply
+          ? {
+              _id: targetReply._id,
+              senderId: targetReply.senderId || targetReply.sender?._id || '',
+              senderName:
+                targetReply.sender?.fullName ||
+                targetReply.sender?.username ||
+                targetReply.senderName ||
+                'User',
+              content:
+                targetReply.content ||
+                (targetReply.messageType === 'image'
+                  ? '📷 Photo'
+                  : targetReply.messageType === 'video'
+                  ? '🎥 Video'
+                  : '📎 Attachment'),
+              messageType: targetReply.messageType || 'text',
+            }
+          : null,
+        reactions: {},
+        deletedForEveryone: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      // Append optimistic message immediately so user sees it right away
+      setMessages((prev) => [...prev, optimisticMessage]);
+
+      try {
+        const sentMessage = await sendConversationMessage(
+          activeConversation._id,
+          user,
+          content,
+          file,
+          targetReply,
+          receiverId,
+          clientMessageId
+        );
+
+        // Update optimistic message status immediately to 'sent' (single checkmark)
+        // so it stops spinning even before onSnapshot fires
+        setMessages((prev) =>
+          prev.map((m) =>
+            m._id === clientMessageId || m.clientMessageId === clientMessageId
+              ? {
+                  ...(sentMessage || m),
+                  _id: sentMessage?._id || m._id,
+                  clientMessageId,
+                  status: 'sent',
+                }
+              : m
+          )
+        );
+
+        if (file && optimisticMessage.fileUrl) {
+          try {
+            URL.revokeObjectURL(optimisticMessage.fileUrl);
+          } catch (_) {}
+        }
+      } catch (err) {
+        // On failure: remove the optimistic message and re-throw so the UI can show the error
+        setMessages((prev) =>
+          prev.filter(
+            (m) =>
+              m._id !== clientMessageId && m.clientMessageId !== clientMessageId
+          )
+        );
+        if (file && optimisticMessage.fileUrl) {
+          try {
+            URL.revokeObjectURL(optimisticMessage.fileUrl);
+          } catch (_) {}
+        }
+        throw err;
       }
-    } catch (err) {
-      // On failure: remove the optimistic message and re-throw so the UI can show the error
-      setMessages((prev) => prev.filter((m) => m._id !== optimisticId));
-      if (file && optimisticMessage.fileUrl) {
-        try { URL.revokeObjectURL(optimisticMessage.fileUrl); } catch (_) {}
-      }
-      throw err;
-    }
-  }, [activeConversation, user, replyingTo]);
+    },
+    [activeConversation, user, replyingTo]
+  );
 
   const deleteMessage = useCallback(async (messageId) => {
     if (!activeConversation || !user) return;

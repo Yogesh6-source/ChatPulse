@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { ArrowLeft, MoreVertical, Search } from 'lucide-react';
 import { Avatar } from '../common/Avatar';
 import { MessageBubble } from './MessageBubble';
@@ -75,6 +75,14 @@ export const ChatPanel = ({
     isInitialLoadRef.current = true;
   }, [conversation?._id]);
 
+  // Synchronous pre-paint jump: scrolls to bottom before the browser paints the frame
+  useLayoutEffect(() => {
+    if (!containerRef.current || messages.length === 0) return;
+    if (isInitialLoadRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
+  }, [messages]);
+
   // When messages load or change
   useEffect(() => {
     if (!containerRef.current || messages.length === 0) return;
@@ -84,10 +92,16 @@ export const ChatPanel = ({
       // Retry multiple times to handle slow DOM layout on low-end devices (images/videos pushing layout taller).
       isInitialLoadRef.current = false;
       scrollToBottom('auto');
-      const t1 = setTimeout(() => scrollToBottom('auto'), 50);
-      const t2 = setTimeout(() => scrollToBottom('auto'), 150);
-      const t3 = setTimeout(() => scrollToBottom('auto'), 300);
-      return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+      const t1 = setTimeout(() => scrollToBottom('auto'), 40);
+      const t2 = setTimeout(() => scrollToBottom('auto'), 120);
+      const t3 = setTimeout(() => scrollToBottom('auto'), 250);
+      const t4 = setTimeout(() => scrollToBottom('auto'), 500);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+        clearTimeout(t4);
+      };
     }
 
     const el = containerRef.current;

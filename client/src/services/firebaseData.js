@@ -117,7 +117,7 @@ const timestampToIso = (value) => {
 
 
 const mapMessage = (snapshot) => {
-  const data = snapshot.data();
+  const data = snapshot.data({ serverTimestamps: 'estimate' });
   return {
     ...data,
     _id: snapshot.id,
@@ -536,7 +536,9 @@ export const sendConversationMessage = async (
   user,
   content,
   file,
-  replyTo = null
+  replyTo = null,
+  providedReceiverId = null,
+  clientMessageId = null
 ) => {
   requireFirebase();
   const normalizedContent = content.trim();
@@ -546,17 +548,36 @@ export const sendConversationMessage = async (
   }
 
   const conversationRef = doc(db, 'conversations', conversationId);
-  const conversationSnapshot = await getDoc(conversationRef);
-  if (!conversationSnapshot.exists()) throw new Error('Conversation no longer exists.');
-  const conversation = conversationSnapshot.data();
-  const receiverId = conversation.participantIds.find((id) => id !== user._id);
-  if (!receiverId) throw new Error('This conversation has no other participant.');
+
+  // Fast path: resolve receiverId directly without a blocking getDoc network call
+  let receiverId = providedReceiverId;
+  let participantIds = null;
+  if (!receiverId) {
+    const parts = conversationId.split('_');
+    if (parts.length === 2 && parts.includes(user._id)) {
+      receiverId = parts.find((id) => id !== user._id);
+      participantIds = parts.slice().sort();
+    }
+  }
+
+  // Fallback only if receiverId couldn't be determined from arguments or ID format
+  if (!receiverId) {
+    const conversationSnapshot = await getDoc(conversationRef);
+    if (!conversationSnapshot.exists()) throw new Error('Conversation no longer exists.');
+    const conversation = conversationSnapshot.data();
+    receiverId = conversation.participantIds?.find((id) => id !== user._id);
+    participantIds = conversation.participantIds;
+    if (!receiverId) throw new Error('This conversation has no other participant.');
+  }
+
+  if (!participantIds) {
+    participantIds = [user._id, receiverId].sort();
+  }
 
   let filePath = null;
   if (file) {
     requireSupabase();
-    const participants = [...conversation.participantIds].sort();
-    filePath = `attachments/${participants[0]}/${participants[1]}/${conversationId}/${makeStorageFileName(file)}`;
+    filePath = `attachments/${participantIds[0]}/${participantIds[1]}/${conversationId}/${makeStorageFileName(file)}`;
     try {
       await uploadFile(ATTACHMENT_BUCKET, filePath, file);
     } catch (error) {
@@ -585,8 +606,10 @@ export const sendConversationMessage = async (
       }
     : null;
 
+  const nowIso = new Date().toISOString();
   const messageData = {
     conversationId,
+    clientMessageId: clientMessageId || null,
     senderId: user._id,
     receiverId,
     sender: profileFields(user),
@@ -606,12 +629,17 @@ export const sendConversationMessage = async (
 
   const batch = writeBatch(db);
   batch.set(messageRef, messageData);
-  batch.update(conversationRef, {
-    lastMessage: { ...messageData, _id: messageRef.id, createdAt: new Date().toISOString() },
-    lastMessageAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-    [`unreadCounts.${receiverId}`]: increment(1),
-  });
+  batch.set(
+    conversationRef,
+    {
+      participantIds,
+      lastMessage: { ...messageData, _id: messageRef.id, createdAt: nowIso },
+      lastMessageAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      [`unreadCounts.${receiverId}`]: increment(1),
+    },
+    { merge: true }
+  );
   try {
     await batch.commit();
   } catch (error) {
@@ -624,7 +652,7 @@ export const sendConversationMessage = async (
     }
     throw toError(error);
   }
-  return { ...messageData, _id: messageRef.id, createdAt: new Date().toISOString() };
+  return { ...messageData, _id: messageRef.id, createdAt: nowIso };
 };
 
 export const toggleMessageReaction = async (conversationId, messageId, uid, emoji) => {

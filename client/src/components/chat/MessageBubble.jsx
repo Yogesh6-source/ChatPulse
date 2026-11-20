@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   Check,
   CheckCheck,
+  Clock,
   Trash2,
   FileText,
   Download,
@@ -54,9 +55,9 @@ export const MessageBubble = React.memo(({
   const renderStatus = () => {
     if (!isMe || message.deletedForEveryone) return null;
 
-    // Optimistic (not yet confirmed by server)
+    // Optimistic (in flight / sending) - WhatsApp clock icon
     if (message.status === 'sending') {
-      return <div className="w-3 h-3 border border-white/60 border-t-transparent rounded-full animate-spin ml-1 inline-block" />;
+      return <Clock className="w-3.5 h-3.5 text-white/70 dark:text-gray-400 ml-1 inline-block animate-pulse" />;
     }
     if (message.status === 'read') {
       return <CheckCheck className="w-3.5 h-3.5 text-sky-400 dark:text-sky-300 ml-1 inline-block" />;
