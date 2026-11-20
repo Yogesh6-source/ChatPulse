@@ -103,7 +103,25 @@ export const MessageInput = ({
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
-    if ((!content.trim() && !selectedFile) || isSubmitting) return;
+    const textToSend = content.trim();
+    const fileToSend = selectedFile;
+    const replyToSend = replyingTo;
+    if ((!textToSend && !fileToSend) || isSubmitting) return;
+
+    // Reset input immediately like WhatsApp
+    setContent('');
+    setSelectedFile(null);
+    if (filePreview?.type === 'video' && filePreview.src) {
+      URL.revokeObjectURL(filePreview.src);
+    }
+    setFilePreview(null);
+    setShowEmojiPicker(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (onCancelReply) onCancelReply();
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.focus();
+    }
 
     try {
       setIsSubmitting(true);
@@ -114,26 +132,14 @@ export const MessageInput = ({
       }
 
       await onSendMessage({
-        content: content.trim(),
-        file: selectedFile,
-        replyTo: replyingTo,
+        content: textToSend,
+        file: fileToSend,
+        replyTo: replyToSend,
       });
-
-      if (filePreview?.type === 'video' && filePreview.src) {
-        URL.revokeObjectURL(filePreview.src);
-      }
-      setContent('');
-      setSelectedFile(null);
-      setFilePreview(null);
-      setShowEmojiPicker(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      if (onCancelReply) onCancelReply();
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-        textareaRef.current.focus();
-      }
     } catch (err) {
       console.error('Failed to send:', err);
+      if (textToSend) setContent(textToSend);
+      if (fileToSend) setSelectedFile(fileToSend);
       setSendError(err.message || 'Failed to send the message.');
     } finally {
       setIsSubmitting(false);

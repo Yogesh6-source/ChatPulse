@@ -12,7 +12,6 @@ import {
   deleteDoc,
   doc,
   getDoc,
-  getDocFromCache,
   getDocs,
   increment,
   limit,
@@ -547,27 +546,9 @@ export const sendConversationMessage = async (
   }
 
   const conversationRef = doc(db, 'conversations', conversationId);
-  let conversation = null;
-  try {
-    const cachedSnap = await getDocFromCache(conversationRef);
-    if (cachedSnap.exists()) {
-      conversation = cachedSnap.data();
-    }
-  } catch (_) {
-    // Cache miss or not cached yet, will fallback
-  }
-
-  if (!conversation) {
-    const conversationParts = conversationId.split('_');
-    if (conversationParts.length === 2 && conversationParts.includes(user._id)) {
-      conversation = { participantIds: conversationParts };
-    } else {
-      const conversationSnapshot = await getDoc(conversationRef);
-      if (!conversationSnapshot.exists()) throw new Error('Conversation no longer exists.');
-      conversation = conversationSnapshot.data();
-    }
-  }
-
+  const conversationSnapshot = await getDoc(conversationRef);
+  if (!conversationSnapshot.exists()) throw new Error('Conversation no longer exists.');
+  const conversation = conversationSnapshot.data();
   const receiverId = conversation.participantIds.find((id) => id !== user._id);
   if (!receiverId) throw new Error('This conversation has no other participant.');
 

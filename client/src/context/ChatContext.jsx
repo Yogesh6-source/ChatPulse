@@ -12,7 +12,7 @@ import {
   deleteConversationMessage,
   listenConversations,
   listenMessages,
-  listenUsersPresence,
+  listenPresence,
   listenTyping,
   listenUserProfile,
   sendConversationMessage,
@@ -109,8 +109,23 @@ export const ChatProvider = ({ children }) => {
       }
     );
 
+    const unsubscribePresence = listenPresence(
+      (statuses) => {
+        setPresence(statuses);
+        setOnlineUsers(
+          new Set(
+            Object.entries(statuses)
+              .filter(([, status]) => status?.isOnline)
+              .map(([uid]) => uid)
+          )
+        );
+      },
+      (error) => console.error('Failed to listen for Firebase presence:', error)
+    );
+
     return () => {
       unsubscribeConversations();
+      unsubscribePresence();
     };
   }, [user]);
 
@@ -161,29 +176,8 @@ export const ChatProvider = ({ children }) => {
       )
     );
 
-    // Subscribe to presence for ONLY the users we actually chat with.
-    // Much lighter than listening to the entire /status tree.
-    const unsubscribePresence = listenUsersPresence(
-      otherUids,
-      (statuses) => {
-        setPresence((prev) => {
-          const merged = { ...prev, ...statuses };
-          return merged;
-        });
-        setOnlineUsers(
-          new Set(
-            Object.entries(statuses)
-              .filter(([, status]) => status?.isOnline)
-              .map(([uid]) => uid)
-          )
-        );
-      },
-      (error) => console.error('Failed to listen for Firebase presence:', error)
-    );
-
     return () => {
       profileUnsubs.forEach((unsub) => unsub());
-      unsubscribePresence();
     };
   }, [conversationRecords, user]);
 
@@ -199,15 +193,7 @@ export const ChatProvider = ({ children }) => {
       activeConversation._id,
       user._id,
       (nextMessages, hasMore) => {
-        // Replace optimistic messages with real server messages
-        setMessages((prev) => {
-          const hasOptimistic = prev.some((m) => m.isOptimistic);
-          if (!hasOptimistic) return nextMessages;
-          // Keep optimistic messages that haven't arrived from server yet
-          const serverIds = new Set(nextMessages.map((m) => m._id));
-          const stillPending = prev.filter((m) => m.isOptimistic && !serverIds.has(m._id));
-          return [...nextMessages, ...stillPending];
-        });
+        setMessages(nextMessages);
         setHasMoreMessages(hasMore);
         setLoadingMessages(false);
       },
@@ -290,47 +276,8 @@ export const ChatProvider = ({ children }) => {
   const sendMessage = useCallback(async ({ content, file = null, replyTo = null }) => {
     if (!activeConversation || !user) return;
     const targetReply = replyTo !== null ? replyTo : replyingTo;
-
-    // Optimistically append the message so the UI feels instant.
-    // The real message (with server timestamp) will arrive via the Firestore
-    // listener and replace this placeholder automatically.
-    if (!file) {
-      const optimisticId = `optimistic_${Date.now()}`;
-      const optimisticMsg = {
-        _id: optimisticId,
-        conversationId: activeConversation._id,
-        senderId: user._id,
-        sender: { _id: user._id, fullName: user.fullName, username: user.username, profilePicture: user.profilePicture || '' },
-        content: content.trim(),
-        messageType: 'text',
-        status: 'sending',
-        replyTo: targetReply
-          ? {
-              _id: targetReply._id,
-              senderId: targetReply.senderId || targetReply.sender?._id || '',
-              senderName: targetReply.sender?.fullName || targetReply.senderName || 'User',
-              content: targetReply.content || '',
-              messageType: targetReply.messageType || 'text',
-            }
-          : null,
-        reactions: {},
-        deletedForEveryone: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        isOptimistic: true,
-      };
-      setMessages((prev) => [...prev, optimisticMsg]);
-    }
-
     setReplyingTo(null);
-
-    try {
-      await sendConversationMessage(activeConversation._id, user, content, file, targetReply);
-    } catch (error) {
-      // Remove the optimistic message on failure so the user sees the error
-      setMessages((prev) => prev.filter((m) => !m.isOptimistic));
-      throw error;
-    }
+    await sendConversationMessage(activeConversation._id, user, content, file, targetReply);
   }, [activeConversation, user, replyingTo]);
 
   const deleteMessage = useCallback(async (messageId) => {

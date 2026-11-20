@@ -45,7 +45,7 @@ export const ChatPanel = ({
 }) => {
   const messagesEndRef = useRef(null);
   const containerRef = useRef(null);
-  const prevMessagesLenRef = useRef(0);
+  const isInitialLoadRef = useRef(true);
 
   const otherUser = conversation?.participants?.find(
     (p) => p._id !== currentUserId
@@ -57,40 +57,60 @@ export const ChatPanel = ({
   const activeTypers = typingUsers[conversation._id] || {};
   const isOtherUserTyping = !!activeTypers[otherUser._id];
 
-  // Auto-scroll to bottom on messages update — instant on conversation switch,
-  // smooth only when a new message arrives while near the bottom.
-  // requestAnimationFrame ensures smooth vsync alignment and prevents layout thrashing.
-  const scrollToBottom = useCallback((behavior = 'smooth') => {
-    requestAnimationFrame(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior });
-    });
+  // Helper to scroll to bottom - instant for initial load, smooth for active chatting
+  const scrollToBottom = useCallback((behavior = 'auto') => {
+    if (!containerRef.current) return;
+    if (behavior === 'auto') {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    } else {
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
   }, []);
 
-  const isNearBottom = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return true;
-    return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-  }, []);
-
+  // When conversation ID changes, mark as initial load so we start at the bottom
   useEffect(() => {
-    scrollToBottom('auto');
-    prevMessagesLenRef.current = messages.length;
+    isInitialLoadRef.current = true;
   }, [conversation?._id]);
 
+  // When messages load or change
   useEffect(() => {
-    const newLen = messages.length;
-    const prevLen = prevMessagesLenRef.current;
-    prevMessagesLenRef.current = newLen;
-    if (newLen > prevLen && isNearBottom()) {
-      scrollToBottom('smooth');
-    }
-  }, [messages, scrollToBottom, isNearBottom]);
+    if (!containerRef.current || messages.length === 0) return;
 
-  useEffect(() => {
-    if (isOtherUserTyping && isNearBottom()) {
-      scrollToBottom('smooth');
+    if (isInitialLoadRef.current) {
+      // Initial opening of chat: jump to bottom instantly so user sees latest messages like WhatsApp
+      isInitialLoadRef.current = false;
+      scrollToBottom('auto');
+      const timer = setTimeout(() => scrollToBottom('auto'), 50);
+      return () => clearTimeout(timer);
     }
-  }, [isOtherUserTyping, scrollToBottom, isNearBottom]);
+
+    const el = containerRef.current;
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+    const lastMsg = messages[messages.length - 1];
+    const isSentByMe =
+      lastMsg &&
+      (lastMsg.senderId === currentUserId ||
+        lastMsg.sender?._id === currentUserId ||
+        lastMsg.sender === currentUserId);
+
+    // If I sent the message OR I am already near the bottom, scroll down smoothly
+    if (isSentByMe || isAtBottom) {
+      requestAnimationFrame(() => scrollToBottom('smooth'));
+    }
+  }, [messages, currentUserId, scrollToBottom]);
+
+  // When other user starts typing and we are near the bottom, keep bottom pinned
+  useEffect(() => {
+    if (!containerRef.current || !isOtherUserTyping) return;
+    const el = containerRef.current;
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+    if (isAtBottom) {
+      requestAnimationFrame(() => scrollToBottom('smooth'));
+    }
+  }, [isOtherUserTyping, scrollToBottom]);
 
   // Group messages by date — memoized so it only recomputes when messages change
   const groupedMessages = useMemo(() => {
@@ -188,7 +208,8 @@ export const ChatPanel = ({
             </div>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col justify-end">
+          <div className="min-h-full flex flex-col justify-end">
+            <div className="flex-1" />
             {groupedMessages.map((item) => {
               if (item.type === 'date_divider') {
                 return (

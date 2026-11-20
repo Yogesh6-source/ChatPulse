@@ -84,9 +84,6 @@
 */
 .message-bubble {
   will-change: transform;
-  contain: layout style;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 54px;
 }
 
 /* Reduce animation complexity on devices that prefer reduced motion */
