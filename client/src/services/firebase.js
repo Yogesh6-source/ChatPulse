@@ -1,7 +1,12 @@
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getDatabase } from 'firebase/database';
-import { getFirestore } from 'firebase/firestore';
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -36,7 +41,20 @@ const app = missingConfig.length
     : initializeApp(firebaseConfig);
 
 export const auth = app ? getAuth(app) : null;
-export const db = app ? getFirestore(app) : null;
+const initDb = () => {
+  if (!app) return null;
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch (error) {
+    return getFirestore(app);
+  }
+};
+
+export const db = initDb();
 export const realtimeDb = app ? getDatabase(app) : null;
 
 export const requireFirebase = () => {

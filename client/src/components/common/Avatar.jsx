@@ -18,7 +18,7 @@ const getAvatarGradient = (name = '') => {
   return gradients[index];
 };
 
-export const Avatar = ({
+export const Avatar = React.memo(({
   src,
   name = 'User',
   size = 'md',
@@ -69,6 +69,8 @@ export const Avatar = ({
           <img
             src={avatarSrc}
             alt={name}
+            loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover"
             onError={(e) => {
               // Fallback to initials if image fails to load
@@ -100,4 +102,4 @@ export const Avatar = ({
       )}
     </div>
   );
-};
+});

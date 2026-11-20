@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ArrowLeft, MoreVertical, Search } from 'lucide-react';
 import { Avatar } from '../common/Avatar';
 import { MessageBubble } from './MessageBubble';
@@ -45,6 +45,7 @@ export const ChatPanel = ({
 }) => {
   const messagesEndRef = useRef(null);
   const containerRef = useRef(null);
+  const prevMessagesLenRef = useRef(0);
 
   const otherUser = conversation?.participants?.find(
     (p) => p._id !== currentUserId
@@ -56,38 +57,55 @@ export const ChatPanel = ({
   const activeTypers = typingUsers[conversation._id] || {};
   const isOtherUserTyping = !!activeTypers[otherUser._id];
 
-  // Auto-scroll to bottom on messages update
-  const scrollToBottom = (behavior = 'smooth') => {
-    messagesEndRef.current?.scrollIntoView({ behavior });
-  };
+  // Auto-scroll to bottom on messages update — instant on conversation switch,
+  // smooth only when a new message arrives while near the bottom.
+  // requestAnimationFrame ensures smooth vsync alignment and prevents layout thrashing.
+  const scrollToBottom = useCallback((behavior = 'smooth') => {
+    requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior });
+    });
+  }, []);
+
+  const isNearBottom = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }, []);
 
   useEffect(() => {
     scrollToBottom('auto');
+    prevMessagesLenRef.current = messages.length;
   }, [conversation?._id]);
 
   useEffect(() => {
-    scrollToBottom('smooth');
-  }, [messages, isOtherUserTyping]);
-
-  // Group messages by date
-  const groupedMessages = [];
-  let lastDate = null;
-
-  messages.forEach((msg) => {
-    const msgDate = new Date(msg.createdAt).toDateString();
-    if (msgDate !== lastDate) {
-      groupedMessages.push({
-        type: 'date_divider',
-        id: `divider-${msgDate}`,
-        date: msg.createdAt,
-      });
-      lastDate = msgDate;
+    const newLen = messages.length;
+    const prevLen = prevMessagesLenRef.current;
+    prevMessagesLenRef.current = newLen;
+    if (newLen > prevLen && isNearBottom()) {
+      scrollToBottom('smooth');
     }
-    groupedMessages.push({
-      type: 'message',
-      ...msg,
+  }, [messages, scrollToBottom, isNearBottom]);
+
+  useEffect(() => {
+    if (isOtherUserTyping && isNearBottom()) {
+      scrollToBottom('smooth');
+    }
+  }, [isOtherUserTyping, scrollToBottom, isNearBottom]);
+
+  // Group messages by date — memoized so it only recomputes when messages change
+  const groupedMessages = useMemo(() => {
+    const groups = [];
+    let lastDate = null;
+    messages.forEach((msg) => {
+      const msgDate = new Date(msg.createdAt).toDateString();
+      if (msgDate !== lastDate) {
+        groups.push({ type: 'date_divider', id: `divider-${msgDate}`, date: msg.createdAt });
+        lastDate = msgDate;
+      }
+      groups.push({ type: 'message', ...msg });
     });
-  });
+    return groups;
+  }, [messages]);
 
   return (
     <div className="w-full flex-1 flex flex-col h-full bg-chat-bgLight dark:bg-chat-bgDark overflow-hidden select-none">
@@ -154,7 +172,7 @@ export const ChatPanel = ({
       {/* Message History Area */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 chat-wallpaper-light dark:chat-wallpaper-dark flex flex-col"
+        className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 chat-wallpaper-light dark:chat-wallpaper-dark flex flex-col messages-scroll-container"
       >
         {loadingMessages ? (
           <div className="flex-1 flex items-center justify-center">

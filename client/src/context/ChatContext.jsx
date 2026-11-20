@@ -12,7 +12,7 @@ import {
   deleteConversationMessage,
   listenConversations,
   listenMessages,
-  listenPresence,
+  listenUsersPresence,
   listenTyping,
   listenUserProfile,
   sendConversationMessage,
@@ -108,23 +108,9 @@ export const ChatProvider = ({ children }) => {
         setLoadingConversations(false);
       }
     );
-    const unsubscribePresence = listenPresence(
-      (statuses) => {
-        setPresence(statuses);
-        setOnlineUsers(
-          new Set(
-            Object.entries(statuses)
-              .filter(([, status]) => status?.isOnline)
-              .map(([uid]) => uid)
-          )
-        );
-      },
-      (error) => console.error('Failed to listen for Firebase presence:', error)
-    );
 
     return () => {
       unsubscribeConversations();
-      unsubscribePresence();
     };
   }, [user]);
 
@@ -160,7 +146,10 @@ export const ChatProvider = ({ children }) => {
       conversationRecords.flatMap((conversation) => conversation.participants)
     );
     participantIds.delete(user._id);
-    const unsubscribers = [...participantIds].map((uid) =>
+    const otherUids = [...participantIds];
+
+    // Listen to profiles for all conversation participants
+    const profileUnsubs = otherUids.map((uid) =>
       listenUserProfile(
         uid,
         (profile) => {
@@ -171,7 +160,31 @@ export const ChatProvider = ({ children }) => {
         (error) => console.error(`Failed to listen for Firebase profile ${uid}:`, error)
       )
     );
-    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+
+    // Subscribe to presence for ONLY the users we actually chat with.
+    // Much lighter than listening to the entire /status tree.
+    const unsubscribePresence = listenUsersPresence(
+      otherUids,
+      (statuses) => {
+        setPresence((prev) => {
+          const merged = { ...prev, ...statuses };
+          return merged;
+        });
+        setOnlineUsers(
+          new Set(
+            Object.entries(statuses)
+              .filter(([, status]) => status?.isOnline)
+              .map(([uid]) => uid)
+          )
+        );
+      },
+      (error) => console.error('Failed to listen for Firebase presence:', error)
+    );
+
+    return () => {
+      profileUnsubs.forEach((unsub) => unsub());
+      unsubscribePresence();
+    };
   }, [conversationRecords, user]);
 
   useEffect(() => {
@@ -186,7 +199,15 @@ export const ChatProvider = ({ children }) => {
       activeConversation._id,
       user._id,
       (nextMessages, hasMore) => {
-        setMessages(nextMessages);
+        // Replace optimistic messages with real server messages
+        setMessages((prev) => {
+          const hasOptimistic = prev.some((m) => m.isOptimistic);
+          if (!hasOptimistic) return nextMessages;
+          // Keep optimistic messages that haven't arrived from server yet
+          const serverIds = new Set(nextMessages.map((m) => m._id));
+          const stillPending = prev.filter((m) => m.isOptimistic && !serverIds.has(m._id));
+          return [...nextMessages, ...stillPending];
+        });
         setHasMoreMessages(hasMore);
         setLoadingMessages(false);
       },
@@ -266,24 +287,63 @@ export const ChatProvider = ({ children }) => {
     }
   }, []);
 
-  const sendMessage = async ({ content, file = null, replyTo = null }) => {
+  const sendMessage = useCallback(async ({ content, file = null, replyTo = null }) => {
     if (!activeConversation || !user) return;
     const targetReply = replyTo !== null ? replyTo : replyingTo;
-    await sendConversationMessage(activeConversation._id, user, content, file, targetReply);
-    setReplyingTo(null);
-  };
 
-  const deleteMessage = async (messageId) => {
+    // Optimistically append the message so the UI feels instant.
+    // The real message (with server timestamp) will arrive via the Firestore
+    // listener and replace this placeholder automatically.
+    if (!file) {
+      const optimisticId = `optimistic_${Date.now()}`;
+      const optimisticMsg = {
+        _id: optimisticId,
+        conversationId: activeConversation._id,
+        senderId: user._id,
+        sender: { _id: user._id, fullName: user.fullName, username: user.username, profilePicture: user.profilePicture || '' },
+        content: content.trim(),
+        messageType: 'text',
+        status: 'sending',
+        replyTo: targetReply
+          ? {
+              _id: targetReply._id,
+              senderId: targetReply.senderId || targetReply.sender?._id || '',
+              senderName: targetReply.sender?.fullName || targetReply.senderName || 'User',
+              content: targetReply.content || '',
+              messageType: targetReply.messageType || 'text',
+            }
+          : null,
+        reactions: {},
+        deletedForEveryone: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        isOptimistic: true,
+      };
+      setMessages((prev) => [...prev, optimisticMsg]);
+    }
+
+    setReplyingTo(null);
+
+    try {
+      await sendConversationMessage(activeConversation._id, user, content, file, targetReply);
+    } catch (error) {
+      // Remove the optimistic message on failure so the user sees the error
+      setMessages((prev) => prev.filter((m) => !m.isOptimistic));
+      throw error;
+    }
+  }, [activeConversation, user, replyingTo]);
+
+  const deleteMessage = useCallback(async (messageId) => {
     if (!activeConversation || !user) return;
     await deleteConversationMessage(activeConversation._id, messageId, user._id);
-  };
+  }, [activeConversation, user]);
 
-  const toggleReaction = async (messageId, emoji) => {
+  const toggleReaction = useCallback(async (messageId, emoji) => {
     if (!activeConversation || !user) return;
     await toggleMessageReaction(activeConversation._id, messageId, user._id, emoji);
-  };
+  }, [activeConversation, user]);
 
-  const emitTyping = (isTyping) => {
+  const emitTyping = useCallback((isTyping) => {
     if (!activeConversation || !user) return;
     if (typingHeartbeatRef.current) {
       clearInterval(typingHeartbeatRef.current);
@@ -299,7 +359,7 @@ export const ChatProvider = ({ children }) => {
         });
       }, 3000);
     }
-  };
+  }, [activeConversation, user]);
 
   const openConversationWithUser = async (otherUserId) => {
     if (!user) throw new Error('You must be signed in to start a conversation.');

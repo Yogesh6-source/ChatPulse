@@ -1,5 +1,4 @@
-import React from 'react';
-import { Avatar } from '../common/Avatar';
+import React from 'react';import { Avatar } from '../common/Avatar';
 import { format, isToday, isYesterday } from 'date-fns';
 import { Image as ImageIcon, FileText, Ban } from 'lucide-react';
 
@@ -17,7 +16,7 @@ const formatConversationTime = (dateString) => {
   return format(date, 'dd/MM/yy');
 };
 
-export const ConversationItem = ({
+export const ConversationItem = React.memo(({
   conversation,
   currentUserId,
   isActive,
@@ -115,4 +114,25 @@ export const ConversationItem = ({
       </div>
     </div>
   );
-};
+}, (prev, next) => {
+  if (prev.isActive !== next.isActive) return false;
+  if (prev.isOnline !== next.isOnline) return false;
+  if (prev.currentUserId !== next.currentUserId) return false;
+  if (prev.conversation._id !== next.conversation._id) return false;
+  if (prev.conversation.unreadCount !== next.conversation.unreadCount) return false;
+  if (prev.conversation.lastMessageAt !== next.conversation.lastMessageAt) return false;
+
+  const prevMsg = prev.conversation.lastMessage;
+  const nextMsg = next.conversation.lastMessage;
+  if (prevMsg?._id !== nextMsg?._id) return false;
+  if (prevMsg?.content !== nextMsg?.content) return false;
+  if (prevMsg?.status !== nextMsg?.status) return false;
+  if (prevMsg?.deletedForEveryone !== nextMsg?.deletedForEveryone) return false;
+
+  const prevOther = prev.conversation.participants?.find((p) => p._id !== prev.currentUserId);
+  const nextOther = next.conversation.participants?.find((p) => p._id !== next.currentUserId);
+  if (prevOther?.fullName !== nextOther?.fullName) return false;
+  if (prevOther?.profilePicture !== nextOther?.profilePicture) return false;
+
+  return true;
+});

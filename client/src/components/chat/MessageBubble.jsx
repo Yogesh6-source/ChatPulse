@@ -21,7 +21,7 @@ const formatFileSize = (bytes) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-export const MessageBubble = ({
+export const MessageBubble = React.memo(({
   message,
   isMe,
   currentUserId,
@@ -54,6 +54,10 @@ export const MessageBubble = ({
   const renderStatus = () => {
     if (!isMe || message.deletedForEveryone) return null;
 
+    // Optimistic (not yet confirmed by server)
+    if (message.status === 'sending') {
+      return <div className="w-3 h-3 border border-white/60 border-t-transparent rounded-full animate-spin ml-1 inline-block" />;
+    }
     if (message.status === 'read') {
       return <CheckCheck className="w-3.5 h-3.5 text-sky-400 dark:text-sky-300 ml-1 inline-block" />;
     }
@@ -85,7 +89,7 @@ export const MessageBubble = ({
   return (
     <div
       id={`msg-${message._id}`}
-      className={`relative group flex flex-col mb-1.5 transition-all duration-300 rounded-2xl ${
+      className={`relative group flex flex-col mb-1.5 transition-all duration-300 rounded-2xl message-bubble ${
         isMe ? 'items-end' : 'items-start'
       }`}
       onMouseEnter={() => setShowOptions(true)}
@@ -362,4 +366,14 @@ export const MessageBubble = ({
       )}
     </div>
   );
-};
+}, (prevProps, nextProps) => {
+  // Only re-render if the message data, selection state, or callbacks changed
+  return (
+    prevProps.message === nextProps.message &&
+    prevProps.isMe === nextProps.isMe &&
+    prevProps.currentUserId === nextProps.currentUserId &&
+    prevProps.onDelete === nextProps.onDelete &&
+    prevProps.onReply === nextProps.onReply &&
+    prevProps.onReact === nextProps.onReact
+  );
+});

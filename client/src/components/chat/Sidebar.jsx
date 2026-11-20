@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Avatar } from '../common/Avatar';
 import { ConversationItem } from './ConversationItem';
 import {
@@ -67,17 +67,19 @@ export const Sidebar = ({
     }
   };
 
-  // Filter conversations locally based on search query
-  const filteredConversations = conversations.filter((conv) => {
-    if (!searchQuery.trim()) return true;
-    const otherUser = conv.participants?.find((p) => p._id !== user._id);
-    if (!otherUser) return false;
+  // Filter conversations locally based on search query - memoized for performance
+  const filteredConversations = useMemo(() => {
+    if (!searchQuery.trim()) return conversations;
     const q = searchQuery.toLowerCase();
-    return (
-      otherUser.fullName.toLowerCase().includes(q) ||
-      otherUser.username.toLowerCase().includes(q)
-    );
-  });
+    return conversations.filter((conv) => {
+      const otherUser = conv.participants?.find((p) => p._id !== user?._id);
+      if (!otherUser) return false;
+      return (
+        (otherUser.fullName && otherUser.fullName.toLowerCase().includes(q)) ||
+        (otherUser.username && otherUser.username.toLowerCase().includes(q))
+      );
+    });
+  }, [conversations, searchQuery, user?._id]);
 
   return (
     <div className="w-full md:w-80 lg:w-96 h-full flex flex-col bg-white dark:bg-[#111b21] border-r border-gray-200 dark:border-gray-800 select-none">

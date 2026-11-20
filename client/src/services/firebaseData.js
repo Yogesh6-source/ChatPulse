@@ -12,6 +12,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocFromCache,
   getDocs,
   increment,
   limit,
@@ -417,6 +418,10 @@ export const listenMessages = (conversationId, uid, onChange, onError) => {
     limit(250)
   );
   let latestSnapshot = 0;
+  // Cache resolved attachment URLs across snapshot updates so we don't re-fetch on
+  // every new message (only genuinely new filePaths are fetched).
+  const urlCache = new Map();
+
   return onSnapshot(
     messagesQuery,
     async (snapshot) => {
@@ -424,22 +429,31 @@ export const listenMessages = (conversationId, uid, onChange, onError) => {
       const allMapped = snapshot.docs.map(mapMessage);
       const messages = allMapped.slice().reverse();
 
-      const messagesWithUrls = await Promise.all(
-        messages.map(async (message) => {
-          if (message.filePath) {
-            try {
-              message.fileUrl = await getAttachmentUrl(message.filePath);
-            } catch (urlError) {
-              console.error('Failed to get signed URL for attachment:', urlError);
-              message.fileUrl = null;
-            }
+      // Only resolve URLs for messages whose filePath is not already cached
+      const pendingUrls = messages
+        .filter((m) => m.filePath && !urlCache.has(m.filePath))
+        .map(async (m) => {
+          try {
+            const url = await getAttachmentUrl(m.filePath);
+            urlCache.set(m.filePath, url);
+          } catch (urlError) {
+            console.error('Failed to get signed URL for attachment:', urlError);
+            urlCache.set(m.filePath, null);
           }
-          return message;
-        })
-      );
-      if (currentSnapshot === latestSnapshot) {
-        onChange(messagesWithUrls, snapshot.size === 250);
+        });
+
+      if (pendingUrls.length > 0) {
+        await Promise.all(pendingUrls);
       }
+
+      if (currentSnapshot !== latestSnapshot) return;
+
+      const messagesWithUrls = messages.map((m) =>
+        m.filePath ? { ...m, fileUrl: urlCache.get(m.filePath) ?? m.fileUrl } : m
+      );
+
+      onChange(messagesWithUrls, snapshot.size === 250);
+
       markMessagesRead(conversationId, uid, allMapped).catch((error) => {
         console.error('Failed to mark messages as read:', error);
       });
@@ -454,21 +468,29 @@ const markMessagesRead = async (conversationId, uid, messages) => {
   );
   if (!unreadMessages.length) return;
 
-  const batch = writeBatch(db);
-  unreadMessages.forEach((message) => {
-    batch.update(
-      doc(db, 'conversations', conversationId, 'messages', message._id),
-      {
-        status: 'read',
-        readAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }
-    );
-  });
-  batch.update(doc(db, 'conversations', conversationId), {
-    [`unreadCounts.${uid}`]: 0,
-  });
-  await batch.commit();
+  // Firestore allows max 500 ops per batch; chunk to stay safe
+  const CHUNK_SIZE = 450;
+  for (let i = 0; i < unreadMessages.length; i += CHUNK_SIZE) {
+    const chunk = unreadMessages.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+    chunk.forEach((message) => {
+      batch.update(
+        doc(db, 'conversations', conversationId, 'messages', message._id),
+        {
+          status: 'read',
+          readAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }
+      );
+    });
+    // Only clear the unread counter on the first chunk
+    if (i === 0) {
+      batch.update(doc(db, 'conversations', conversationId), {
+        [`unreadCounts.${uid}`]: 0,
+      });
+    }
+    await batch.commit();
+  }
 };
 
 export const createConversation = async (currentUser, otherUserId) => {
@@ -525,9 +547,27 @@ export const sendConversationMessage = async (
   }
 
   const conversationRef = doc(db, 'conversations', conversationId);
-  const conversationSnapshot = await getDoc(conversationRef);
-  if (!conversationSnapshot.exists()) throw new Error('Conversation no longer exists.');
-  const conversation = conversationSnapshot.data();
+  let conversation = null;
+  try {
+    const cachedSnap = await getDocFromCache(conversationRef);
+    if (cachedSnap.exists()) {
+      conversation = cachedSnap.data();
+    }
+  } catch (_) {
+    // Cache miss or not cached yet, will fallback
+  }
+
+  if (!conversation) {
+    const conversationParts = conversationId.split('_');
+    if (conversationParts.length === 2 && conversationParts.includes(user._id)) {
+      conversation = { participantIds: conversationParts };
+    } else {
+      const conversationSnapshot = await getDoc(conversationRef);
+      if (!conversationSnapshot.exists()) throw new Error('Conversation no longer exists.');
+      conversation = conversationSnapshot.data();
+    }
+  }
+
   const receiverId = conversation.participantIds.find((id) => id !== user._id);
   if (!receiverId) throw new Error('This conversation has no other participant.');
 
@@ -679,6 +719,8 @@ export const deleteConversationMessage = async (conversationId, messageId, uid) 
 
 export const listenPresence = (onChange, onError) => {
   requireFirebase();
+  // Listen to the entire /status tree. For small-to-medium user bases this is
+  // fine; the data is already paginated by Firebase RTDB's connection limits.
   return onValue(
     databaseRef(realtimeDb, 'status'),
     (snapshot) => {
@@ -696,6 +738,38 @@ export const listenPresence = (onChange, onError) => {
     },
     onError
   );
+};
+
+/**
+ * Subscribe to the online presence of a specific set of users.
+ * Returns an unsubscribe function. Use this instead of listenPresence when you
+ * only need to track a small, known set of participants (e.g. conversation participants).
+ * Each call attaches one RTDB listener per uid so total bandwidth is proportional
+ * to the number of people you actually chat with, not the entire user base.
+ */
+export const listenUsersPresence = (uids, onChange, onError) => {
+  requireFirebase();
+  if (!uids || uids.length === 0) return () => {};
+
+  const statuses = {};
+  const unsubscribers = uids.map((uid) =>
+    onValue(
+      databaseRef(realtimeDb, `status/${uid}`),
+      (snapshot) => {
+        const status = snapshot.val();
+        statuses[uid] = status
+          ? {
+              isOnline: Object.keys(status?.connections || {}).length > 0,
+              lastSeen: status?.lastSeen || null,
+            }
+          : { isOnline: false, lastSeen: null };
+        onChange({ ...statuses });
+      },
+      onError
+    )
+  );
+
+  return () => unsubscribers.forEach((unsub) => unsub());
 };
 
 export const startPresence = (uid) => {

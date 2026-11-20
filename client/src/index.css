@@ -11,6 +11,8 @@
     margin: 0;
     padding: 0;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    /* Prevent overscroll rubber-band on mobile which can cause jank */
+    overscroll-behavior: none;
   }
 }
 
@@ -54,4 +56,46 @@
   background-image: radial-gradient(#182229 1px, transparent 1px), radial-gradient(#182229 1px, #0b141a 1px);
   background-size: 30px 30px;
   background-position: 0 0, 15px 15px;
+}
+
+/* ─── Performance helpers ─────────────────────────────────────────────────── */
+
+/*
+  Promote the message list scroll container to its own GPU compositing layer.
+  This isolates paint/reflow from the rest of the page, making scrolling butter-smooth
+  even on low-end Android devices with a single CPU core.
+*/
+.messages-scroll-container {
+  /* GPU layer promotion */
+  will-change: scroll-position;
+  /* Layout containment: tells the browser this subtree won't affect the outside layout */
+  contain: layout style;
+  /* Use momentum scrolling on iOS Safari */
+  -webkit-overflow-scrolling: touch;
+}
+
+/*
+  Promote individual message bubbles so reaction/status animations don't
+  force a full layer repaint on every frame.
+  content-visibility: auto skips layout/paint of offscreen bubbles, dramatically
+  reducing memory and boosting FPS on low-end mobile devices.
+  Note: contain: layout style is used without 'paint' so reaction popovers
+  positioned outside the bubble bounds are not clipped.
+*/
+.message-bubble {
+  will-change: transform;
+  contain: layout style;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 54px;
+}
+
+/* Reduce animation complexity on devices that prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .animate-bounce,
+  .animate-spin,
+  .animate-pulse,
+  .animate-slide-up {
+    animation: none !important;
+    transition: none !important;
+  }
 }
