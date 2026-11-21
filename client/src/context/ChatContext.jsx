@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import {
   createConversation,
+  createMessageRef,
   deleteConversationMessage,
   listenConversations,
   listenMessages,
@@ -193,19 +194,12 @@ export const ChatProvider = ({ children }) => {
       activeConversation._id,
       user._id,
       (nextMessages, hasMore) => {
-        // Replace list from server and drop any optimistic messages that have
-        // now been confirmed by either doc ID or clientMessageId.
+        // Replace list from server and seamlessly drop any optimistic message
+        // once its exact document ID arrives in nextMessages.
         setMessages((prev) => {
-          const confirmedIds = new Set();
-          nextMessages.forEach((m) => {
-            if (m._id) confirmedIds.add(m._id);
-            if (m.clientMessageId) confirmedIds.add(m.clientMessageId);
-          });
+          const confirmedIds = new Set(nextMessages.map((m) => m._id));
           const pendingOptimistic = prev.filter(
-            (m) =>
-              (m._id?.startsWith?.('client_') || m._id?.startsWith?.('optimistic_')) &&
-              !confirmedIds.has(m._id) &&
-              !confirmedIds.has(m.clientMessageId)
+            (m) => m.status === 'sending' && !confirmedIds.has(m._id)
           );
           return [...nextMessages, ...pendingOptimistic];
         });
@@ -303,12 +297,13 @@ export const ChatProvider = ({ children }) => {
         activeConversation.participantIds?.find((id) => id !== user._id) ||
         activeConversation._id.split('_').find((id) => id !== user._id);
 
-      // Unique client message ID for instant optimistic tracking
-      const clientMessageId = `client_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+      // Pre-allocate the Firestore document reference so the optimistic message ID
+      // is guaranteed to match the Firestore document ID with 100% precision.
+      const messageRef = createMessageRef(activeConversation._id);
+      const messageId = messageRef.id;
 
       const optimisticMessage = {
-        _id: clientMessageId,
-        clientMessageId,
+        _id: messageId,
         conversationId: activeConversation._id,
         senderId: user._id,
         receiverId,
@@ -367,18 +362,16 @@ export const ChatProvider = ({ children }) => {
           file,
           targetReply,
           receiverId,
-          clientMessageId
+          messageRef
         );
 
-        // Update optimistic message status immediately to 'sent' (single checkmark)
-        // so it stops spinning even before onSnapshot fires
+        // Update status immediately to 'sent' (single checkmark) upon successful commit
         setMessages((prev) =>
           prev.map((m) =>
-            m._id === clientMessageId || m.clientMessageId === clientMessageId
+            m._id === messageId
               ? {
                   ...(sentMessage || m),
-                  _id: sentMessage?._id || m._id,
-                  clientMessageId,
+                  _id: messageId,
                   status: 'sent',
                 }
               : m
@@ -392,12 +385,7 @@ export const ChatProvider = ({ children }) => {
         }
       } catch (err) {
         // On failure: remove the optimistic message and re-throw so the UI can show the error
-        setMessages((prev) =>
-          prev.filter(
-            (m) =>
-              m._id !== clientMessageId && m.clientMessageId !== clientMessageId
-          )
-        );
+        setMessages((prev) => prev.filter((m) => m._id !== messageId));
         if (file && optimisticMessage.fileUrl) {
           try {
             URL.revokeObjectURL(optimisticMessage.fileUrl);

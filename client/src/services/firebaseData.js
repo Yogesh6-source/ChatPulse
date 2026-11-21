@@ -531,6 +531,11 @@ export const createConversation = async (currentUser, otherUserId) => {
   }
 };
 
+export const createMessageRef = (conversationId) => {
+  requireFirebase();
+  return doc(collection(db, 'conversations', conversationId, 'messages'));
+};
+
 export const sendConversationMessage = async (
   conversationId,
   user,
@@ -538,7 +543,7 @@ export const sendConversationMessage = async (
   file,
   replyTo = null,
   providedReceiverId = null,
-  clientMessageId = null
+  existingMessageRef = null
 ) => {
   requireFirebase();
   const normalizedContent = content.trim();
@@ -590,7 +595,8 @@ export const sendConversationMessage = async (
     }
   }
 
-  const messageRef = doc(collection(db, 'conversations', conversationId, 'messages'));
+  // Use pre-allocated client doc reference if available so optimistic ID strictly matches Firestore doc ID
+  const messageRef = existingMessageRef || doc(collection(db, 'conversations', conversationId, 'messages'));
   const messageType = file
     ? (file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file')
     : 'text';
@@ -607,9 +613,9 @@ export const sendConversationMessage = async (
     : null;
 
   const nowIso = new Date().toISOString();
+  // Keys strictly match the allowed keys in firestore.rules
   const messageData = {
     conversationId,
-    clientMessageId: clientMessageId || null,
     senderId: user._id,
     receiverId,
     sender: profileFields(user),
@@ -629,17 +635,14 @@ export const sendConversationMessage = async (
 
   const batch = writeBatch(db);
   batch.set(messageRef, messageData);
-  batch.set(
-    conversationRef,
-    {
-      participantIds,
-      lastMessage: { ...messageData, _id: messageRef.id, createdAt: nowIso },
-      lastMessageAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      [`unreadCounts.${receiverId}`]: increment(1),
-    },
-    { merge: true }
-  );
+  // Update fields strictly matching the allowed keys in firestore.rules: lastMessage, lastMessageAt, updatedAt, unreadCounts
+  batch.update(conversationRef, {
+    lastMessage: { ...messageData, _id: messageRef.id, createdAt: nowIso },
+    lastMessageAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    [`unreadCounts.${receiverId}`]: increment(1),
+  });
+
   try {
     await batch.commit();
   } catch (error) {

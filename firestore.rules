@@ -108,7 +108,7 @@ service cloud.firestore {
         allow read: if isConversationParticipant(parentConversation());
         allow create: if isConversationParticipant(parentConversation())
           && request.resource.data.keys().hasOnly([
-            'conversationId', 'senderId', 'receiverId', 'sender', 'content',
+            'conversationId', 'clientMessageId', 'senderId', 'receiverId', 'sender', 'content',
             'messageType', 'fileUrl', 'filePath', 'fileName', 'fileSize',
             'status', 'replyTo', 'reactions', 'expiresAt', 'deletedForEveryone',
             'createdAt', 'updatedAt'

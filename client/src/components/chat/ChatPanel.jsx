@@ -46,6 +46,7 @@ export const ChatPanel = ({
   const messagesEndRef = useRef(null);
   const containerRef = useRef(null);
   const isInitialLoadRef = useRef(true);
+  const userScrolledUpRef = useRef(false);
 
   const otherUser = conversation?.participants?.find(
     (p) => p._id !== currentUserId
@@ -70,9 +71,18 @@ export const ChatPanel = ({
     }
   }, []);
 
+  // Track if user intentionally scrolled up to read earlier history
+  const handleScroll = useCallback(() => {
+    if (!containerRef.current) return;
+    const el = containerRef.current;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    userScrolledUpRef.current = distanceFromBottom > 120;
+  }, []);
+
   // When conversation ID changes, mark as initial load so we start at the bottom
   useEffect(() => {
     isInitialLoadRef.current = true;
+    userScrolledUpRef.current = false;
   }, [conversation?._id]);
 
   // Synchronous pre-paint jump: scrolls to bottom before the browser paints the frame
@@ -81,7 +91,7 @@ export const ChatPanel = ({
     if (isInitialLoadRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages.length]);
 
   // When messages load or change
   useEffect(() => {
@@ -89,23 +99,20 @@ export const ChatPanel = ({
 
     if (isInitialLoadRef.current) {
       // Initial opening of chat: jump to bottom instantly so user sees latest messages like WhatsApp.
-      // Retry multiple times to handle slow DOM layout on low-end devices (images/videos pushing layout taller).
       isInitialLoadRef.current = false;
       scrollToBottom('auto');
-      const t1 = setTimeout(() => scrollToBottom('auto'), 40);
-      const t2 = setTimeout(() => scrollToBottom('auto'), 120);
-      const t3 = setTimeout(() => scrollToBottom('auto'), 250);
-      const t4 = setTimeout(() => scrollToBottom('auto'), 500);
+      const t1 = setTimeout(() => {
+        if (!userScrolledUpRef.current) scrollToBottom('auto');
+      }, 50);
+      const t2 = setTimeout(() => {
+        if (!userScrolledUpRef.current) scrollToBottom('auto');
+      }, 150);
       return () => {
         clearTimeout(t1);
         clearTimeout(t2);
-        clearTimeout(t3);
-        clearTimeout(t4);
       };
     }
 
-    const el = containerRef.current;
-    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
     const lastMsg = messages[messages.length - 1];
     const isSentByMe =
       lastMsg &&
@@ -113,20 +120,20 @@ export const ChatPanel = ({
         lastMsg.sender?._id === currentUserId ||
         lastMsg.sender === currentUserId);
 
-    // If I sent the message OR I am already near the bottom, scroll down smoothly
-    if (isSentByMe || isAtBottom) {
+    // If I sent the message, always scroll down smoothly.
+    // If receiving a message, only auto-scroll if user hasn't scrolled up to read history.
+    if (isSentByMe) {
+      userScrolledUpRef.current = false;
+      requestAnimationFrame(() => scrollToBottom('smooth'));
+    } else if (!userScrolledUpRef.current) {
       requestAnimationFrame(() => scrollToBottom('smooth'));
     }
   }, [messages, currentUserId, scrollToBottom]);
 
-  // When other user starts typing and we are near the bottom, keep bottom pinned
+  // When other user starts typing and user is at bottom, keep bottom pinned
   useEffect(() => {
-    if (!containerRef.current || !isOtherUserTyping) return;
-    const el = containerRef.current;
-    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
-    if (isAtBottom) {
-      requestAnimationFrame(() => scrollToBottom('smooth'));
-    }
+    if (!containerRef.current || !isOtherUserTyping || userScrolledUpRef.current) return;
+    requestAnimationFrame(() => scrollToBottom('smooth'));
   }, [isOtherUserTyping, scrollToBottom]);
 
   // Group messages by date — memoized so it only recomputes when messages change
@@ -145,7 +152,7 @@ export const ChatPanel = ({
   }, [messages]);
 
   return (
-    <div className="w-full flex-1 flex flex-col h-full bg-chat-bgLight dark:bg-chat-bgDark overflow-hidden select-none">
+    <div className="w-full flex-1 flex flex-col h-full bg-chat-bgLight dark:bg-chat-bgDark overflow-hidden">
       {/* Header */}
       <div className="h-16 px-3 sm:px-4 bg-white/95 dark:bg-[#202c33] border-b border-gray-200/80 dark:border-gray-800 flex items-center justify-between z-10 backdrop-blur-md shadow-xs flex-shrink-0">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -209,6 +216,7 @@ export const ChatPanel = ({
       {/* Message History Area */}
       <div
         ref={containerRef}
+        onScroll={handleScroll}
         className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 chat-wallpaper-light dark:chat-wallpaper-dark flex flex-col messages-scroll-container"
       >
         {loadingMessages ? (
@@ -225,7 +233,7 @@ export const ChatPanel = ({
             </div>
           </div>
         ) : (
-          <div className="min-h-full flex flex-col justify-end">
+          <div className="flex flex-col min-h-full">
             <div className="flex-1" />
             {groupedMessages.map((item) => {
               if (item.type === 'date_divider') {

@@ -66,11 +66,9 @@
   even on low-end Android devices with a single CPU core.
 */
 .messages-scroll-container {
-  /* GPU layer promotion */
+  /* GPU layer promotion for silky-smooth 60fps scrolling */
   will-change: scroll-position;
-  /* Layout containment: tells the browser this subtree won't affect the outside layout */
-  contain: layout style;
-  /* Use momentum scrolling on iOS Safari */
+  /* Momentum scrolling on iOS Safari */
   -webkit-overflow-scrolling: touch;
 }
 
